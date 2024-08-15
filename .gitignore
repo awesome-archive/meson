@@ -1,4 +1,5 @@
 .mypy_cache/
+.pytest_cache/
 /.project
 /.pydevproject
 /.settings
@@ -7,7 +8,8 @@
 /.vscode
 
 __pycache__
-.coverage
+/.coverage/
+/.coveragerc
 /install dir
 /work area
 
@@ -29,3 +31,4 @@ packagecache
 /docs/hotdoc-private*
 
 *.pyc
+/*venv*

@@ -1,4 +1,5 @@
 #include"manualinclude.h"
+#include <mocdep.h>
 #include<QCoreApplication>
 
 #include<QObject>
@@ -24,4 +25,3 @@ int main(int argc, char **argv) {
 }
 
 #include"manualinclude.moc"
-

@@ -1,6 +1,13 @@
 #include "cmMod.hpp"
 #include "genTest.hpp"
-#include "cpyBase.hpp"
+#include "cpyBase.txt"
+#include "cpyNext.hpp"
+#include "cpyTest.hpp"
+#include "cmModLib.hpp"
+
+#ifndef FOO
+#error FOO not declared
+#endif
 
 using namespace std;
 
@@ -13,5 +20,5 @@ string cmModClass::getStr() const {
 }
 
 string cmModClass::getOther() const {
-  return getStr() + "  --  " + getStrCpy();
+  return "Strings:\n - " + getStrCpy() + "\n - " + getStrNext() + "\n - " + getStrCpyTest();
 }

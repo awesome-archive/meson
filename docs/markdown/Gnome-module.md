@@ -3,7 +3,7 @@
 This module provides helper tools for build operations needed when
 building Gnome/GLib programs.
 
-**Note**: the compilation commands here might not work properly when
+**Note**: the compilation commands here might not work properly when
   you change the source files. This is a bug in the respective
   compilers which do not expose the required dependency
   information. This has been reported upstream in [this bug]. Until
@@ -21,12 +21,27 @@ with anything else.
 
 ### gnome.compile_resources()
 
+```
+    gnome.compile_resources(id: string, input_file: string | File,
+                            build_by_default: bool = false,
+                            c_name: string | None = None,
+                            dependencies: [](File, CustomTarget, CustomTargetIndex) = [],
+                            export: bool = false,
+                            extra_args: []string = [],
+                            gresource_bundle: bool = false,
+                            install_dir: string | None = None,
+                            source_dir: [string] = [],
+                            ): (CustomTarget, CustomTarget) | CustomTarget
+```
+
 This function compiles resources specified in an XML file into code
 that can be embedded inside the main binary. Similar a build target it
 takes two positional arguments. The first one is the name of the
 resource and the second is the XML file containing the resource
 definitions. If the name is `foobar`, Meson will generate a header
 file called `foobar.h`, which you can then include in your sources.
+The resources specified are automatically added as dependencies of the
+generated target.
 
 * `c_name`: passed to the resource compiler as an argument after
   `--c-name`
@@ -79,6 +94,9 @@ There are several keyword arguments. Many of these map directly to the
 
 * `dependencies`: deps to use during introspection scanning
 * `extra_args`: command line arguments to pass to gir compiler
+* `env`: (*Added 1.2.0*) environment variables to set, such as
+  `{'NAME1': 'value1', 'NAME2': 'value2'}` or `['NAME1=value1', 'NAME2=value2']`,
+  or an [[@env]] object which allows more sophisticated environment juggling.
 * `export_packages`: extra packages the gir file exports
 * `sources`: the list of sources to be scanned for gir data
 * `nsversion`: namespace version
@@ -88,16 +106,20 @@ There are several keyword arguments. Many of these map directly to the
   e.g. `Gtk`
 * `includes`: list of gir names to be included, can also be a GirTarget
 * `header`: *(Added 0.43.0)* name of main c header to include for the library, e.g. `glib.h`
-* `dependencies`: deps to use during introspection scanning
 * `include_directories`: extra include paths to look for gir files
 * `install`: if true, install the generated files
+* `install_gir`: (*Added 0.61.0*) overrides `install`, whether to install the
+  generated gir
 * `install_dir_gir`: (*Added 0.35.0*) which directory to install the
-  gir file into
+  gir file into; (*Deprecated since 0.61.0*) can be false to disable installation
+* `install_typelib`: (*Added 0.61.0*) overrides `install`, whether to install the
+  generated typelib
 * `install_dir_typelib`: (*Added 0.35.0*) which directory to install
-  the typelib file into
+  the typelib file into; (*Deprecated since 0.61.0*) can be false to disable installation
 * `link_with`: list of libraries to link with
 * `symbol_prefix`: the symbol prefix for the gir object, e.g. `gtk`,
   (*Since 0.43.0*) an ordered list of multiple prefixes is allowed
+* `fatal_warnings`: *Since 0.55.0* turn scanner warnings into fatal errors.
 
 Returns an array of two elements which are: `[gir_target,
 typelib_target]`
@@ -107,18 +129,21 @@ typelib_target]`
 Generates a marshal file using the `glib-genmarshal` tool. The first
 argument is the basename of the output files.
 
-* `extra_args`: (*Added 0.42.0*) additional command line arguments to
-  pass
+* `depends` [](BuildTarget | CustomTarget | CustomTargetIndex):
+  passed directly to CustomTarget (*since 0.61.0*)
+* `depend_files` [](str | File): Passed directly to CustomTarget (*since 0.61.0*)
+* `extra_args`: (*Added 0.42.0*) additional command line arguments to pass
+* `install_dir`: directory to install header to
 * `install_header`: if true, install the generated header
 * `install_dir`: directory to install header to
-* `nostdinc`: if true, don't include the standard marshallers from
-  glib
-* `internal`: if true, mark generated sources as internal to
-  `glib-genmarshal` (*Requires GLib 2.54*)
+* `install_header`: if true, install the generated header
+* `internal`: if true, mark generated sources as internal to `glib-genmarshal`
+  (*Requires GLib 2.54*)
+* `nostdinc`: if true, don't include the standard marshallers from glib
 * `prefix`: the prefix to use for symbols
 * `skip_source`: if true, skip source location comments
+* `sources` [](str | File) *required*: the list of sources to use as inputs
 * `stdinc`: if true, include the standard marshallers from glib
-* `sources`: the list of sources to use as inputs
 * `valist_marshallers`: if true, generate va_list marshallers
 
 *Added 0.35.0*
@@ -128,9 +153,9 @@ Returns an array of two elements which are: `[c_source, header_file]`
 ### gnome.mkenums()
 
 Generates enum files for GObject using the `glib-mkenums` tool. The
-first argument is the base name of the output files, unless `c_template`
-and `h_template` are specified. In this case, the output files will be
-the base name of the values passed as templates.
+first argument is the base name of the output files, unless
+`c_template` and `h_template` are specified. In this case, the output
+files will be the base name of the values passed as templates.
 
 This method is essentially a wrapper around the `glib-mkenums` tool's
 command line API. It is the most featureful method for enum creation.
@@ -145,6 +170,7 @@ template with only minor tweaks, in which case the
 Note that if you `#include` the generated header in any of the sources
 for a build target, you must add the generated header to the build
 target's list of sources to codify the dependency. This is true for
+
 all generated sources, not just `mkenums`.
 
 * `c_template`: template to use for generating the source
@@ -177,6 +203,13 @@ Note that if you `#include` the generated header in any of the sources
 for a build target, you must add the generated header to the build
 target's list of sources to codify the dependency. This is true for
 all generated sources, not just `mkenums_simple`.
+
+The generated source file includes all headers passed to the sources keyword
+argument, using paths relative to current build or source directory. That means
+that targets that compile the generated source file must have the current
+directory in its `include_directories`. *Since 1.3.0* `sources` outside of
+current directory do not require adding those directories into
+`include_directories` anymore.
 
 * `body_prefix`: additional prefix at the top of the body file,
   e.g. for extra includes
@@ -223,10 +256,11 @@ directory. Note that this is not for installing schemas and is only
 useful when running the application locally for example during tests.
 
 * `build_by_default`: causes, when set to true, to have this target be
-  built by default, that is, when invoking plain `ninja`, the default
+  built by default, that is, when invoking plain `meson compile`, the default
   value is true for all built target types
-* `depend_files`: files ([`string`](#string-object),
-  [`files()`](#files), or [`configure_file()`](#configure_file)) of
+* `depend_files`: files ([[@str]],
+  [[files]], or
+  [[configure_file]]) of
   schema source XML files that should trigger a re-compile if changed.
 
 ### gnome.gdbus_codegen()
@@ -245,20 +279,20 @@ one XML file.
 * `annotations`: *(Added 0.43.0)* list of lists of 3 strings for the annotation for `'ELEMENT', 'KEY', 'VALUE'`
 * `docbook`: *(Added 0.43.0)* prefix to generate `'PREFIX'-NAME.xml` docbooks
 * `build_by_default`: causes, when set to true, to have this target be
-  built by default, that is, when invoking plain `ninja`, the default
+  built by default, that is, when invoking plain `meson compile`, the default
   value is true for all built target types
 * `install_dir`: (*Added 0.46.0*) location to install the header or
   bundle depending on previous options
 * `install_header`: (*Added 0.46.0*) if true, install the header file
 
-Starting *0.46.0*, this function returns a list of at least two custom targets
-(in order): one for the source code and one for the header. The list will
-contain a third custom target for the generated docbook files if that keyword
-argument is passed.
+Starting *0.46.0*, this function returns a list of at least two custom
+targets (in order): one for the source code and one for the header.
+The list will contain a third custom target for the generated docbook
+files if that keyword argument is passed.
 
-Earlier versions return a single custom target representing all the outputs.
-Generally, you should just add this list of targets to a top level target's
-source list.
+Earlier versions return a single custom target representing all the
+outputs. Generally, you should just add this list of targets to a top
+level target's source list.
 
 Example:
 
@@ -297,13 +331,31 @@ VAPI or Vala binaries.
 
 ### gnome.yelp()
 
-Installs help documentation using Yelp. The first argument is the
-project id.
+```meson
+  gnome.yelp(id: string, sources: ...string, sources: []string, media: []string,
+             languages: []string, symlink_media: bool = true): void
+```
+
+Installs help documentation for Yelp using itstool and gettext. The first
+argument is the project id.
+
+Additionally, sources can be passed as additional positional arguments. This
+was, however, undocumented and never officially supported. Due to a longstanding
+bug, passing sources as a keyword argument will result in the positional
+argument sources to be ignored. *since 0.60.0* A warning is raised in this case.
+
+*Since 0.43.0* if "languages" is not specified, a
+[LINGUAS](https://www.gnu.org/software/gettext/manual/html_node/po_002fLINGUAS.html)
+file will be read instead.
+
+*Since 0.60.0* the use of the positional argument sources has been deprecated,
+and the "sources" keyword argument should be used instead. The passing of
+sources as positional arguments will be removed in the future.
 
 This also creates two targets for translations
 `help-$project-update-po` and `help-$project-pot`.
 
-* `languages`: list of languages for translations
+* `languages`: *(deprecated since 0.43.0)* list of languages for translation, overrides the LINGUAS file
 * `media`: list of media such as images
 * `sources`: list of pages
 * `symlink_media`: if media should be symlinked not copied (defaults to `true` since 0.42.0)
@@ -343,11 +395,12 @@ of the module.
   Note that this has the downside of rebuilding the doc for each build, which is
   often very slow. It usually should be enabled only in CI.
 
-This creates a `$module-doc` target that can be ran to build docs and
-normally these are only built on install.
+This also creates a `$module-doc` target that can be run to build
+documentation. Normally the documentation is only built on install.
 
-*Since 0.52.0* Returns a target object that can be passed as dependency to other
-targets using generated doc files (e.g. in `content_files` of another doc).
+*Since 0.52.0* Returns a target object that can be passed as
+dependency to other targets using generated doc files (e.g. in
+`content_files` of another doc).
 
 ### gnome.gtkdoc_html_dir()
 
@@ -355,3 +408,24 @@ Takes as argument a module name and returns the path where that
 module's HTML files will be installed. Usually used with
 `install_data` to install extra files, such as images, to the output
 directory.
+
+### gnome.post_install()
+
+*Since 0.57.0*
+
+Post-install update of various system wide caches. Each script will be executed
+only once even if `gnome.post_install()` is called multiple times from multiple
+subprojects. If `DESTDIR` is specified during installation all scripts will be
+skipped.
+
+It takes the following keyword arguments:
+- `glib_compile_schemas`: If set to `true`, update `gschemas.compiled` file in
+  `<prefix>/<datadir>/glib-2.0/schemas`.
+- `gio_querymodules`: List of directories relative to `prefix` where
+  `giomodule.cache` file will be updated.
+- `gtk_update_icon_cache`: If set to `true`, update `icon-theme.cache` file in
+  `<prefix>/<datadir>/icons/hicolor`.
+- `update_desktop_database`: *Since 0.59.0* If set to `true`, update cache of
+  MIME types handled by desktop files in `<prefix>/<datadir>/applications`.
+- `update_mime_database`: *Since 0.64.0* If set to `true`, update cache of
+  MIME types in `<prefix>/<datadir>/mime`.

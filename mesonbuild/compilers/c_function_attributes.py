@@ -56,6 +56,8 @@ C_FUNC_ATTRIBUTES = {
         'int foo(const char * p, ...) __attribute__((format(printf, 1, 2)));',
     'format_arg':
         'char * foo(const char * p) __attribute__((format_arg(1)));',
+    'force_align_arg_pointer':
+        '__attribute__((force_align_arg_pointer)) int foo(void) { return 0; }',
     'gnu_inline':
         'inline __attribute__((gnu_inline)) int foo(void) { return 0; }',
     'hot':
@@ -78,6 +80,8 @@ C_FUNC_ATTRIBUTES = {
         'int foo(void) __attribute__((noreturn));',
     'nothrow':
         'int foo(void) __attribute__((nothrow));',
+    'null_terminated_string_arg':
+        'int foo(const char * p) __attribute__((null_terminated_string_arg(1)));',
     'optimize':
         '__attribute__((optimize(3))) int foo(void) { return 0; }',
     'packed':
@@ -86,22 +90,32 @@ C_FUNC_ATTRIBUTES = {
         'int foo(void) __attribute__((pure));',
     'returns_nonnull':
         'int *foo(void) __attribute__((returns_nonnull));',
+    'section': '''
+        #if defined(__APPLE__) && defined(__MACH__)
+            extern int foo __attribute__((section("__BAR,__bar")));
+        #else
+            extern int foo __attribute__((section(".bar")));
+        #endif''',
+    'sentinel':
+        'int foo(const char *bar, ...) __attribute__((sentinel));',
     'unused':
         'int foo(void) __attribute__((unused));',
     'used':
         'int foo(void) __attribute__((used));',
+    'vector_size':
+        '__attribute__((vector_size(32))); int foo(void) { return 0; }',
     'visibility': '''
-        int foo_def(void) __attribute__((visibility("default")));
-        int foo_hid(void) __attribute__((visibility("hidden")));
-        int foo_int(void) __attribute__((visibility("internal")));''',
+        int foo_def(void) __attribute__((visibility("default"))); int foo_def(void) { return 0; }
+        int foo_hid(void) __attribute__((visibility("hidden"))); int foo_hid(void) { return 0; }
+        int foo_int(void) __attribute__((visibility("internal"))); int foo_int(void) { return 0; }''',
     'visibility:default':
-        'int foo(void) __attribute__((visibility("default")));',
+        'int foo(void) __attribute__((visibility("default"))); int foo(void) { return 0; }',
     'visibility:hidden':
-        'int foo(void) __attribute__((visibility("hidden")));',
+        'int foo(void) __attribute__((visibility("hidden"))); int foo(void) { return 0; }',
     'visibility:internal':
-        'int foo(void) __attribute__((visibility("internal")));',
+        'int foo(void) __attribute__((visibility("internal"))); int foo(void) { return 0; }',
     'visibility:protected':
-        'int foo(void) __attribute__((visibility("protected")));',
+        'int foo(void) __attribute__((visibility("protected"))); int foo(void) { return 0; }',
     'warning':
         'int foo(void) __attribute__((warning("")));',
     'warn_unused_result':
@@ -111,6 +125,7 @@ C_FUNC_ATTRIBUTES = {
     'weakref': '''
         static int foo(void) { return 0; }
         static int var(void) __attribute__((weakref("foo")));''',
+    'retain': '__attribute__((retain)) int x;',
 }
 
 CXX_FUNC_ATTRIBUTES = {

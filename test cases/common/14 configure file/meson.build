@@ -1,4 +1,6 @@
-project('configure file test', 'c')
+project('configure file test', 'c', meson_version: '>=0.63.0')
+
+fs = import('fs')
 
 conf = configuration_data()
 
@@ -10,6 +12,7 @@ conf.set('BE_TRUE', true)
 assert(conf.get('var') == 'mystring', 'Get function is not working.')
 assert(conf.get('var', 'default') == 'mystring', 'Get function is not working.')
 assert(conf.get('notthere', 'default') == 'default', 'Default value getting is not working.')
+assert(conf.keys() == ['BE_TRUE', 'other', 'second', 'var'], 'Keys function is not working')
 
 cfile = configure_file(input : 'config.h.in',
   output : 'config.h',
@@ -39,7 +42,7 @@ outf = configure_file(input : 'dummy.dat',
   output : 'config2.h',
   command : [genprog, scriptfile,  ifile, ofile],
   install_dir : 'share/appdir')
-ret = run_command(check_file, outf)
+ret = run_command(check_file, outf, check: false)
 if ret.returncode() != 0
   error('Error running command: @0@\n@1@'.format(ret.stdout(), ret.stderr()))
 endif
@@ -52,7 +55,18 @@ outf = configure_file(
   output : 'config2b.h',
   command : [genprog, genscript2b, ofile2b],
   install_dir : 'share/appdir')
-ret = run_command(check_file, outf)
+ret = run_command(check_file, outf, check: false)
+if ret.returncode() != 0
+  error('Error running command: @0@\n@1@'.format(ret.stdout(), ret.stderr()))
+endif
+
+genscript2deps = '@0@/generator-deps.py'.format(meson.current_source_dir())
+ofile2deps = '@0@/config2deps.h'.format(meson.current_build_dir())
+outf = configure_file(
+  output : 'config2deps.h',
+  depfile : 'depfile.d',
+  command : [genprog, genscript2deps, ofile2deps, '@DEPFILE@'])
+ret = run_command(check_file, outf, check: false)
 if ret.returncode() != 0
   error('Error running command: @0@\n@1@'.format(ret.stdout(), ret.stderr()))
 endif
@@ -104,7 +118,7 @@ basename_py = find_program('basename.py')
 file_contains_py = find_program('file_contains.py')
 test_string = 'hello world'
 test_input_file = join_paths(meson.current_build_dir(), test_string)
-run_command(find_program('touch.py'), test_input_file)
+run_command(find_program('touch.py'), test_input_file, check: true)
 configs = [
     # no input
     configure_file(command: [ basename_py, test_string ], capture: true, output: 'capture test 1'),
@@ -129,6 +143,8 @@ test('test5', executable('prog5', 'prog5.c'))
 conf6 = configuration_data()
 conf6.set('var1', 'foo')
 conf6.set('var2', 'bar')
+conf6.set('var3', 'baz')
+conf6.set('var4', 'qux')
 configure_file(
   input : 'config6.h.in',
   output : '@BASENAME@',
@@ -147,7 +163,7 @@ cfile = configure_file(input : 'config.h.in',
   install_dir : false,
   configuration : conf)
 
-# test intsall_dir with install: false
+# test install_dir with install: false
 cfile = configure_file(input : 'config.h.in',
   output : 'do_not_get_installed_in_install_dir.h',
   install : false,
@@ -170,7 +186,16 @@ inf = 'invalid-utf8.bin.in'
 outf = configure_file(input : inf,
   output : 'invalid-utf8.bin',
   copy: true)
-ret = run_command(check_file, inf, outf)
+ret = run_command(check_file, inf, outf, check: false)
+if ret.returncode() != 0
+  error('Error running command: @0@\n@1@'.format(ret.stdout(), ret.stderr()))
+endif
+# Now the same, but using a File object as an argument.
+inf2 = files('invalid-utf8.bin.in')[0]
+outf = configure_file(input : inf2,
+  output : 'invalid-utf8.bin',
+  copy: true)
+ret = run_command(check_file, inf2, outf, check: false)
 if ret.returncode() != 0
   error('Error running command: @0@\n@1@'.format(ret.stdout(), ret.stderr()))
 endif
@@ -179,10 +204,29 @@ endif
 outf = configure_file(input : inf,
   output : 'somebinary.bin',
   copy : true)
-ret = run_command(check_file, inf, outf)
+ret = run_command(check_file, inf, outf, check: false)
 if ret.returncode() != 0
   error('Error running command: @0@\n@1@'.format(ret.stdout(), ret.stderr()))
 endif
+
+# Test the fs replacement
+# Test copying of an empty configuration data object
+inf = 'invalid-utf8.bin.in'
+outf = fs.copyfile(inf, 'invalid-utf8-1.bin',
+  install: true,
+  install_dir: get_option('datadir') / meson.project_name(),
+  install_tag: 'copyfile',
+)
+test('fs.copyfile string', check_file, args: [files(inf), outf])
+
+# Test with default outname of string
+outf = fs.copyfile(inf)
+test('fs.copyfile default name', check_file, args: [files(inf), outf])
+
+# Now the same, but using a File object as an argument.
+inf2 = files('invalid-utf8.bin.in')[0]
+outf = fs.copyfile(inf2, 'invalid-utf8-2.bin')
+test('fs.copyfile file', check_file, args: [inf2, outf])
 
 # Test non isolatin1 encoded input file which fails to decode with utf-8
 conf8 = configuration_data()
@@ -257,9 +301,6 @@ configure_file(
 
 test('configure-file', test_file)
 
-cdata = configuration_data()
-cdata.set('invalid_value', ['array'])
-
 # Dictionaries
 
 cdata = configuration_data({
@@ -269,9 +310,15 @@ cdata = configuration_data({
   'A_UNDEFINED' : false,
 })
 
+# merging a confdata into another one should not mark the first as immutable
+cdata_test = configuration_data()
+cdata_test.merge_from(cdata)
+cdata.set_quoted('A_PATH', '/random/path')
+
 configure_file(output : 'config9a.h',
   configuration : cdata,
 )
+
 
 configure_file(output : 'config9b.h',
   configuration : {
@@ -283,3 +330,9 @@ configure_file(output : 'config9b.h',
 )
 
 test('test9', executable('prog9', 'prog9.c'))
+
+check_inputs = find_program('check_inputs.py')
+configure_file(output : 'check_inputs.txt',
+  input : ['prog.c', files('prog2.c', 'prog4.c')],
+  command : [check_inputs, '@OUTPUT@', '@INPUT0@', '@INPUT@', files('prog5.c')]
+)

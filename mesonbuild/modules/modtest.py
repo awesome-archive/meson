@@ -1,28 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2015 The Meson development team
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+from __future__ import annotations
+import typing as T
 
-#     http://www.apache.org/licenses/LICENSE-2.0
+from . import NewExtensionModule, ModuleInfo
+from ..interpreterbase import noKwargs, noPosargs
 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+if T.TYPE_CHECKING:
+    from . import ModuleState
+    from ..interpreter.interpreter import Interpreter
+    from ..interpreterbase.baseobjects import TYPE_kwargs, TYPE_var
 
-from . import ModuleReturnValue
-from . import ExtensionModule
-from ..interpreterbase import noKwargs
 
-class TestModule(ExtensionModule):
+class TestModule(NewExtensionModule):
+
+    INFO = ModuleInfo('modtest')
+
+    def __init__(self, interpreter: Interpreter) -> None:
+        super().__init__()
+        self.methods.update({
+            'print_hello': self.print_hello,
+        })
 
     @noKwargs
-    def print_hello(self, state, args, kwargs):
+    @noPosargs
+    def print_hello(self, state: ModuleState, args: T.List[TYPE_var], kwargs: TYPE_kwargs) -> None:
         print('Hello from a Meson module')
-        rv = ModuleReturnValue(None, [])
-        return rv
 
-def initialize(*args, **kwargs):
-    return TestModule(*args, **kwargs)
+
+def initialize(interp: Interpreter) -> TestModule:
+    return TestModule(interp)

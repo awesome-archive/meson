@@ -1,38 +1,49 @@
 #!/usr/bin/env python3
-
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2018 The Meson development team
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-import sys
 import os
 import tempfile
 import unittest
 import subprocess
 import zipapp
+import sysconfig
 from pathlib import Path
 
 from mesonbuild.mesonlib import windows_proof_rmtree, python_command, is_windows
+from mesonbuild.coredata import version as meson_version
+
+scheme = None
+
+def needs_debian_path_hack():
+    try:
+        import setuptools
+        return int(setuptools.__version__.split('.')[0]) < 65
+    except ModuleNotFoundError:
+        return False
+
+if needs_debian_path_hack():
+    # Handle the scheme that Debian patches in the as default
+    # This function was renamed and made public in Python 3.10
+    if hasattr(sysconfig, 'get_default_scheme'):
+        scheme = sysconfig.get_default_scheme()
+    else:
+        scheme = sysconfig._get_default_scheme()
+    if scheme == 'posix_local':
+        scheme = 'posix_prefix'
 
 def get_pypath():
-    import sysconfig
-    pypath = sysconfig.get_path('purelib', vars={'base': ''})
+    if scheme:
+        pypath = sysconfig.get_path('purelib', scheme=scheme, vars={'base': ''})
+    else:
+        pypath = sysconfig.get_path('purelib', vars={'base': ''})
     # Ensure that / is the path separator and not \, then strip /
     return Path(pypath).as_posix().strip('/')
 
 def get_pybindir():
-    import sysconfig
     # 'Scripts' on Windows and 'bin' on other platforms including MSYS
+    if scheme:
+        return sysconfig.get_path('scripts', scheme=scheme, vars={'base': ''}).strip('\\/')
     return sysconfig.get_path('scripts', vars={'base': ''}).strip('\\/')
 
 class CommandTests(unittest.TestCase):
@@ -61,7 +72,7 @@ class CommandTests(unittest.TestCase):
         os.chdir(str(self.orig_dir))
         super().tearDown()
 
-    def _run(self, command, workdir=None):
+    def _run(self, command, workdir=None, env=None):
         '''
         Run a command while printing the stdout, and also return a copy of it
         '''
@@ -69,7 +80,7 @@ class CommandTests(unittest.TestCase):
         # between CI issue and test bug in that case. Set timeout and fail loud
         # instead.
         p = subprocess.run(command, stdout=subprocess.PIPE,
-                           env=os.environ.copy(), universal_newlines=True,
+                           env=env, text=True,
                            cwd=workdir, timeout=60 * 5)
         print(p.stdout)
         if p.returncode != 0:
@@ -78,7 +89,7 @@ class CommandTests(unittest.TestCase):
 
     def assertMesonCommandIs(self, line, cmd):
         self.assertTrue(line.startswith('meson_command '), msg=line)
-        self.assertEqual(line, 'meson_command is {!r}'.format(cmd))
+        self.assertEqual(line, f'meson_command is {cmd!r}')
 
     def test_meson_uninstalled(self):
         # This is what the meson command must be for all these cases
@@ -109,13 +120,16 @@ class CommandTests(unittest.TestCase):
         bindir = (self.tmpdir / 'bin')
         bindir.mkdir()
         (bindir / 'meson').symlink_to(self.src_root / 'meson.py')
+        (bindir / 'python3').symlink_to(python_command[0])
         os.environ['PATH'] = str(bindir) + os.pathsep + os.environ['PATH']
+        # use our overridden PATH-compatible python
+        path_resolved_meson_command = [str(bindir / 'meson')]
         # See if it works!
         meson_py = 'meson'
         meson_setup = [meson_py, 'setup']
         meson_command = meson_setup + self.meson_args
         stdo = self._run(meson_command + [self.testdir, builddir])
-        self.assertMesonCommandIs(stdo.split('\n')[0], resolved_meson_command)
+        self.assertMesonCommandIs(stdo.split('\n')[0], path_resolved_meson_command)
 
     def test_meson_installed(self):
         # Install meson
@@ -128,24 +142,13 @@ class CommandTests(unittest.TestCase):
         os.environ['PYTHONPATH'] = os.path.join(str(pylibdir), '')
         os.environ['PATH'] = str(bindir) + os.pathsep + os.environ['PATH']
         self._run(python_command + ['setup.py', 'install', '--prefix', str(prefix)])
+        # Fix importlib-metadata by appending all dirs in pylibdir
+        PYTHONPATHS = [pylibdir] + [x for x in pylibdir.iterdir()]
+        PYTHONPATHS = [os.path.join(str(x), '') for x in PYTHONPATHS]
+        os.environ['PYTHONPATH'] = os.pathsep.join(PYTHONPATHS)
         # Check that all the files were installed correctly
         self.assertTrue(bindir.is_dir())
         self.assertTrue(pylibdir.is_dir())
-        from setup import packages
-        # Extract list of expected python module files
-        expect = set()
-        for pkg in packages:
-            expect.update([p.as_posix() for p in Path(pkg.replace('.', '/')).glob('*.py')])
-        # Check what was installed, only count files that are inside 'mesonbuild'
-        have = set()
-        for p in Path(pylibdir).glob('**/*.py'):
-            s = p.as_posix()
-            if 'mesonbuild' not in s:
-                continue
-            if '/data/' in s:
-                continue
-            have.add(s[s.rfind('mesonbuild'):])
-        self.assertEqual(have, expect)
         # Run `meson`
         os.chdir('/')
         resolved_meson_command = [str(bindir / 'meson')]
@@ -175,7 +178,7 @@ class CommandTests(unittest.TestCase):
         builddir = str(self.tmpdir / 'build4')
         (bindir / 'meson').rename(bindir / 'meson.real')
         wrapper = (bindir / 'meson')
-        wrapper.open('w').write('#!/bin/sh\n\nmeson.real "$@"')
+        wrapper.write_text('#!/bin/sh\n\nmeson.real "$@"', encoding='utf-8')
         wrapper.chmod(0o755)
         meson_setup = [str(wrapper), 'setup']
         meson_command = meson_setup + self.meson_args
@@ -188,11 +191,28 @@ class CommandTests(unittest.TestCase):
     def test_meson_zipapp(self):
         if is_windows():
             raise unittest.SkipTest('NOT IMPLEMENTED')
-        source = Path(__file__).resolve().parent.as_posix()
+        source = Path(__file__).resolve().parent
         target = self.tmpdir / 'meson.pyz'
-        zipapp.create_archive(source=source, target=target, interpreter=python_command[0], main=None)
+        script = source / 'packaging' / 'create_zipapp.py'
+        self._run([script.as_posix(), source, '--outfile', target, '--interpreter', python_command[0]])
         self._run([target.as_posix(), '--help'])
+
+    def test_meson_runpython(self):
+        meson_command = str(self.src_root / 'meson.py')
+        script_file = str(self.src_root / 'foo.py')
+        test_command = 'import sys; print(sys.argv[1])'
+        env = os.environ.copy()
+        del env['MESON_COMMAND_TESTS']
+        with open(script_file, 'w') as f:
+            f.write('#!/usr/bin/env python3\n\n')
+            f.write(f'{test_command}\n')
+
+        for cmd in [['-c', test_command, 'fake argument'], [script_file, 'fake argument']]:
+            pyout = self._run(python_command + cmd)
+            mesonout = self._run(python_command + [meson_command, 'runpython'] + cmd, env=env)
+            self.assertEqual(pyout, mesonout)
 
 
 if __name__ == '__main__':
-    sys.exit(unittest.main(buffer=True))
+    print('Meson build system', meson_version, 'Command Tests')
+    raise SystemExit(unittest.main(buffer=True))

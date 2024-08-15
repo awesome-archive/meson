@@ -1,25 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2019 The Meson development team
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-
-#     http://www.apache.org/licenses/LICENSE-2.0
-
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+from __future__ import annotations
 
 
 from . import coredata as cdata
 from .mesonlib import MachineChoice
+from .options import OptionKey
 
 import os.path
 import pprint
 import textwrap
 
+# Note: when adding arguments, please also add them to the completion
+# scripts in $MESONSRC/data/shell-completions/
 def add_arguments(parser):
     parser.add_argument('--all', action='store_true', dest='all', default=False,
                         help='Show data not used by current backend.')
@@ -36,9 +30,6 @@ def dump_compilers(compilers):
             print('      Full version: ' + compiler.full_version)
         if compiler.version:
             print('      Detected version: ' + compiler.version)
-        if hasattr(compiler, 'compiler_type'):
-            print('      Detected type: ' + repr(compiler.compiler_type))
-        #pprint.pprint(compiler.__dict__)
 
 
 def dump_guids(d):
@@ -62,19 +53,19 @@ def run(options):
     print('')
 
     coredata = cdata.load(options.builddir)
-    backend = coredata.get_builtin_option('backend')
+    backend = coredata.get_option(OptionKey('backend'))
     for k, v in sorted(coredata.__dict__.items()):
-        if k in ('backend_options', 'base_options', 'builtins', 'compiler_options', 'user_options'):
+        if k in {'backend_options', 'base_options', 'builtins', 'compiler_options', 'user_options'}:
             # use `meson configure` to view these
             pass
-        elif k in ['install_guid', 'test_guid', 'regen_guid']:
+        elif k in {'install_guid', 'test_guid', 'regen_guid'}:
             if all_backends or backend.startswith('vs'):
                 print(k + ': ' + v)
         elif k == 'target_guids':
             if all_backends or backend.startswith('vs'):
                 print(k + ':')
                 dump_guids(v)
-        elif k in ['lang_guids']:
+        elif k == 'lang_guids':
             if all_backends or backend.startswith('vs') or backend == 'xcode':
                 print(k + ':')
                 dump_guids(v)
@@ -82,7 +73,7 @@ def run(options):
             if all_backends or backend.startswith('vs'):
                 print('Meson command used in build file regeneration: ' + ' '.join(v))
         elif k == 'pkgconf_envvar':
-            print('Last seen PKGCONFIG enviroment variable value: ' + v)
+            print('Last seen PKGCONFIG environment variable value: ' + v)
         elif k == 'version':
             print('Meson version: ' + v)
         elif k == 'cross_files':
@@ -98,7 +89,7 @@ def run(options):
                 dump_compilers(v[for_machine])
         elif k == 'deps':
             def print_dep(dep_key, dep):
-                print('  ' + dep_key[0] + ": ")
+                print('  ' + dep_key[0][1] + ": ")
                 print('      compile args: ' + repr(dep.get_compile_args()))
                 print('      link args: ' + repr(dep.get_link_args()))
                 if dep.get_sources():
@@ -106,9 +97,9 @@ def run(options):
                 print('      version: ' + repr(dep.get_version()))
 
             for for_machine in iter(MachineChoice):
-                items_list = list(sorted(v[for_machine].items()))
+                items_list = sorted(v[for_machine].items())
                 if items_list:
-                    print('Cached dependencies for {} machine' % for_machine.get_lower_case_name())
+                    print(f'Cached dependencies for {for_machine.get_lower_case_name()} machine')
                     for dep_key, deps in items_list:
                         for dep in deps:
                             print_dep(dep_key, dep)

@@ -1,185 +1,204 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2019 The Meson development team
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-
-#     http://www.apache.org/licenses/LICENSE-2.0
-
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 # This class contains the basic functionality needed to run any interpreter
 # or an interpreter-based tool
+from __future__ import annotations
 
 from .. import mparser
-from . import AstVisitor
-import re
+from .visitor import AstVisitor, FullAstVisitor
 
-arithmic_map = {
-    'add': '+',
-    'sub': '-',
-    'mod': '%',
-    'mul': '*',
-    'div': '/'
-}
+import re
+import typing as T
+
 
 class AstPrinter(AstVisitor):
-    def __init__(self, indent: int = 2, arg_newline_cutoff: int = 5):
+    def __init__(self, indent: int = 2, arg_newline_cutoff: int = 5, update_ast_line_nos: bool = False):
         self.result = ''
         self.indent = indent
         self.arg_newline_cutoff = arg_newline_cutoff
         self.ci = ''
         self.is_newline = True
         self.last_level = 0
+        self.curr_line = 1 if update_ast_line_nos else None
 
-    def post_process(self):
+    def post_process(self) -> None:
         self.result = re.sub(r'\s+\n', '\n', self.result)
 
-    def append(self, data: str, node: mparser.BaseNode):
-        level = 0
-        if node and hasattr(node, 'level'):
-            level = node.level
-        else:
-            level = self.last_level
-        self.last_level = level
+    def append(self, data: str, node: mparser.BaseNode) -> None:
+        self.last_level = node.level
         if self.is_newline:
-            self.result += ' ' * (level * self.indent)
+            self.result += ' ' * (node.level * self.indent)
         self.result += data
         self.is_newline = False
 
-    def append_padded(self, data: str, node: mparser.BaseNode):
-        if self.result[-1] not in [' ', '\n']:
+    def append_padded(self, data: str, node: mparser.BaseNode) -> None:
+        if self.result and self.result[-1] not in [' ', '\n']:
             data = ' ' + data
         self.append(data + ' ', node)
 
-    def newline(self):
+    def newline(self) -> None:
         self.result += '\n'
         self.is_newline = True
+        if self.curr_line is not None:
+            self.curr_line += 1
 
-    def visit_BooleanNode(self, node: mparser.BooleanNode):
+    def visit_BooleanNode(self, node: mparser.BooleanNode) -> None:
         self.append('true' if node.value else 'false', node)
+        node.lineno = self.curr_line or node.lineno
 
-    def visit_IdNode(self, node: mparser.IdNode):
+    def visit_IdNode(self, node: mparser.IdNode) -> None:
+        assert isinstance(node.value, str)
         self.append(node.value, node)
+        node.lineno = self.curr_line or node.lineno
 
-    def visit_NumberNode(self, node: mparser.NumberNode):
+    def visit_NumberNode(self, node: mparser.NumberNode) -> None:
         self.append(str(node.value), node)
+        node.lineno = self.curr_line or node.lineno
 
-    def visit_StringNode(self, node: mparser.StringNode):
-        self.append("'" + node.value + "'", node)
+    def escape(self, val: str) -> str:
+        return val.replace('\\', '\\\\').replace("'", "\'")
 
-    def visit_ContinueNode(self, node: mparser.ContinueNode):
+    def visit_StringNode(self, node: mparser.StringNode) -> None:
+        assert isinstance(node.value, str)
+
+        if node.is_fstring:
+            self.append('f', node)
+        if node.is_multiline:
+            self.append("'''" + node.value + "'''", node)
+        else:
+            self.append("'" + self.escape(node.value) + "'", node)
+        node.lineno = self.curr_line or node.lineno
+
+    def visit_ContinueNode(self, node: mparser.ContinueNode) -> None:
         self.append('continue', node)
+        node.lineno = self.curr_line or node.lineno
 
-    def visit_BreakNode(self, node: mparser.BreakNode):
+    def visit_BreakNode(self, node: mparser.BreakNode) -> None:
         self.append('break', node)
+        node.lineno = self.curr_line or node.lineno
 
-    def visit_ArrayNode(self, node: mparser.ArrayNode):
+    def visit_ArrayNode(self, node: mparser.ArrayNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         self.append('[', node)
         node.args.accept(self)
         self.append(']', node)
 
-    def visit_DictNode(self, node: mparser.DictNode):
+    def visit_DictNode(self, node: mparser.DictNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         self.append('{', node)
         node.args.accept(self)
         self.append('}', node)
 
-    def visit_OrNode(self, node: mparser.OrNode):
+    def visit_OrNode(self, node: mparser.OrNode) -> None:
         node.left.accept(self)
         self.append_padded('or', node)
+        node.lineno = self.curr_line or node.lineno
         node.right.accept(self)
 
-    def visit_AndNode(self, node: mparser.AndNode):
+    def visit_AndNode(self, node: mparser.AndNode) -> None:
         node.left.accept(self)
         self.append_padded('and', node)
+        node.lineno = self.curr_line or node.lineno
         node.right.accept(self)
 
-    def visit_ComparisonNode(self, node: mparser.ComparisonNode):
+    def visit_ComparisonNode(self, node: mparser.ComparisonNode) -> None:
         node.left.accept(self)
-        self.append_padded(mparser.comparison_map[node.ctype], node)
+        self.append_padded(node.ctype if node.ctype != 'notin' else 'not in', node)
+        node.lineno = self.curr_line or node.lineno
         node.right.accept(self)
 
-    def visit_ArithmeticNode(self, node: mparser.ArithmeticNode):
+    def visit_ArithmeticNode(self, node: mparser.ArithmeticNode) -> None:
         node.left.accept(self)
-        self.append_padded(arithmic_map[node.operation], node)
+        self.append_padded(node.operator.value, node)
+        node.lineno = self.curr_line or node.lineno
         node.right.accept(self)
 
-    def visit_NotNode(self, node: mparser.NotNode):
+    def visit_NotNode(self, node: mparser.NotNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         self.append_padded('not', node)
         node.value.accept(self)
 
-    def visit_CodeBlockNode(self, node: mparser.CodeBlockNode):
+    def visit_CodeBlockNode(self, node: mparser.CodeBlockNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         for i in node.lines:
             i.accept(self)
             self.newline()
 
-    def visit_IndexNode(self, node: mparser.IndexNode):
+    def visit_IndexNode(self, node: mparser.IndexNode) -> None:
         node.iobject.accept(self)
+        node.lineno = self.curr_line or node.lineno
         self.append('[', node)
         node.index.accept(self)
         self.append(']', node)
 
-    def visit_MethodNode(self, node: mparser.MethodNode):
+    def visit_MethodNode(self, node: mparser.MethodNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         node.source_object.accept(self)
-        self.append('.' + node.name + '(', node)
+        self.append('.' + node.name.value + '(', node)
         node.args.accept(self)
         self.append(')', node)
 
-    def visit_FunctionNode(self, node: mparser.FunctionNode):
-        self.append(node.func_name + '(', node)
+    def visit_FunctionNode(self, node: mparser.FunctionNode) -> None:
+        node.lineno = self.curr_line or node.lineno
+        self.append(node.func_name.value + '(', node)
         node.args.accept(self)
         self.append(')', node)
 
-    def visit_AssignmentNode(self, node: mparser.AssignmentNode):
-        self.append(node.var_name + ' = ', node)
+    def visit_AssignmentNode(self, node: mparser.AssignmentNode) -> None:
+        node.lineno = self.curr_line or node.lineno
+        self.append(node.var_name.value + ' = ', node)
         node.value.accept(self)
 
-    def visit_PlusAssignmentNode(self, node: mparser.PlusAssignmentNode):
-        self.append(node.var_name + ' += ', node)
+    def visit_PlusAssignmentNode(self, node: mparser.PlusAssignmentNode) -> None:
+        node.lineno = self.curr_line or node.lineno
+        self.append(node.var_name.value + ' += ', node)
         node.value.accept(self)
 
-    def visit_ForeachClauseNode(self, node: mparser.ForeachClauseNode):
-        varnames = [x.value for x in node.varnames]
+    def visit_ForeachClauseNode(self, node: mparser.ForeachClauseNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         self.append_padded('foreach', node)
-        self.append_padded(', '.join(varnames), node)
+        self.append_padded(', '.join(varname.value for varname in node.varnames), node)
         self.append_padded(':', node)
         node.items.accept(self)
         self.newline()
         node.block.accept(self)
         self.append('endforeach', node)
 
-    def visit_IfClauseNode(self, node: mparser.IfClauseNode):
+    def visit_IfClauseNode(self, node: mparser.IfClauseNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         prefix = ''
         for i in node.ifs:
             self.append_padded(prefix + 'if', node)
             prefix = 'el'
             i.accept(self)
-        if node.elseblock:
+        if not isinstance(node.elseblock, mparser.EmptyNode):
             self.append('else', node)
+            self.newline()
             node.elseblock.accept(self)
         self.append('endif', node)
 
-    def visit_UMinusNode(self, node: mparser.UMinusNode):
+    def visit_UMinusNode(self, node: mparser.UMinusNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         self.append_padded('-', node)
         node.value.accept(self)
 
-    def visit_IfNode(self, node: mparser.IfNode):
+    def visit_IfNode(self, node: mparser.IfNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         node.condition.accept(self)
         self.newline()
         node.block.accept(self)
 
-    def visit_TernaryNode(self, node: mparser.TernaryNode):
+    def visit_TernaryNode(self, node: mparser.TernaryNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         node.condition.accept(self)
         self.append_padded('?', node)
         node.trueblock.accept(self)
         self.append_padded(':', node)
         node.falseblock.accept(self)
 
-    def visit_ArgumentNode(self, node: mparser.ArgumentNode):
+    def visit_ArgumentNode(self, node: mparser.ArgumentNode) -> None:
+        node.lineno = self.curr_line or node.lineno
         break_args = (len(node.arguments) + len(node.kwargs)) > self.arg_newline_cutoff
         for i in node.arguments + list(node.kwargs.values()):
             if not isinstance(i, (mparser.ElementaryNode, mparser.IndexNode)):
@@ -192,7 +211,7 @@ class AstPrinter(AstVisitor):
             if break_args:
                 self.newline()
         for key, val in node.kwargs.items():
-            self.append(key, node)
+            key.accept(self)
             self.append_padded(':', node)
             val.accept(self)
             self.append(', ', node)
@@ -202,3 +221,206 @@ class AstPrinter(AstVisitor):
             self.result = re.sub(r', \n$', '\n', self.result)
         else:
             self.result = re.sub(r', $', '', self.result)
+
+class RawPrinter(FullAstVisitor):
+
+    def __init__(self) -> None:
+        self.result = ''
+
+    def visit_default_func(self, node: mparser.BaseNode) -> None:
+        self.enter_node(node)
+        assert hasattr(node, 'value')
+        self.result += node.value
+        self.exit_node(node)
+
+    def visit_EmptyNode(self, node: mparser.EmptyNode) -> None:
+        self.enter_node(node)
+        self.exit_node(node)
+
+    def visit_BooleanNode(self, node: mparser.BooleanNode) -> None:
+        self.enter_node(node)
+        self.result += 'true' if node.value else 'false'
+        self.exit_node(node)
+
+    def visit_NumberNode(self, node: mparser.NumberNode) -> None:
+        self.enter_node(node)
+        self.result += node.raw_value
+        self.exit_node(node)
+
+    def visit_StringNode(self, node: mparser.StringNode) -> None:
+        self.enter_node(node)
+        if node.is_fstring:
+            self.result += 'f'
+        if node.is_multiline:
+            self.result += f"'''{node.value}'''"
+        else:
+            self.result += f"'{node.raw_value}'"
+        self.exit_node(node)
+
+    def visit_ContinueNode(self, node: mparser.ContinueNode) -> None:
+        self.enter_node(node)
+        self.result += 'continue'
+        self.exit_node(node)
+
+    def visit_BreakNode(self, node: mparser.BreakNode) -> None:
+        self.enter_node(node)
+        self.result += 'break'
+        self.exit_node(node)
+
+
+class AstJSONPrinter(AstVisitor):
+    def __init__(self) -> None:
+        self.result: T.Dict[str, T.Any] = {}
+        self.current = self.result
+
+    def _accept(self, key: str, node: mparser.BaseNode) -> None:
+        old = self.current
+        data: T.Dict[str, T.Any] = {}
+        self.current = data
+        node.accept(self)
+        self.current = old
+        self.current[key] = data
+
+    def _accept_list(self, key: str, nodes: T.Sequence[mparser.BaseNode]) -> None:
+        old = self.current
+        datalist: T.List[T.Dict[str, T.Any]] = []
+        for i in nodes:
+            self.current = {}
+            i.accept(self)
+            datalist += [self.current]
+        self.current = old
+        self.current[key] = datalist
+
+    def _raw_accept(self, node: mparser.BaseNode, data: T.Dict[str, T.Any]) -> None:
+        old = self.current
+        self.current = data
+        node.accept(self)
+        self.current = old
+
+    def setbase(self, node: mparser.BaseNode) -> None:
+        self.current['node'] = type(node).__name__
+        self.current['lineno'] = node.lineno
+        self.current['colno'] = node.colno
+        self.current['end_lineno'] = node.end_lineno
+        self.current['end_colno'] = node.end_colno
+
+    def visit_default_func(self, node: mparser.BaseNode) -> None:
+        self.setbase(node)
+
+    def gen_ElementaryNode(self, node: mparser.ElementaryNode) -> None:
+        self.current['value'] = node.value
+        self.setbase(node)
+
+    def visit_BooleanNode(self, node: mparser.BooleanNode) -> None:
+        self.gen_ElementaryNode(node)
+
+    def visit_IdNode(self, node: mparser.IdNode) -> None:
+        self.gen_ElementaryNode(node)
+
+    def visit_NumberNode(self, node: mparser.NumberNode) -> None:
+        self.gen_ElementaryNode(node)
+
+    def visit_StringNode(self, node: mparser.StringNode) -> None:
+        self.gen_ElementaryNode(node)
+
+    def visit_ArrayNode(self, node: mparser.ArrayNode) -> None:
+        self._accept('args', node.args)
+        self.setbase(node)
+
+    def visit_DictNode(self, node: mparser.DictNode) -> None:
+        self._accept('args', node.args)
+        self.setbase(node)
+
+    def visit_OrNode(self, node: mparser.OrNode) -> None:
+        self._accept('left', node.left)
+        self._accept('right', node.right)
+        self.setbase(node)
+
+    def visit_AndNode(self, node: mparser.AndNode) -> None:
+        self._accept('left', node.left)
+        self._accept('right', node.right)
+        self.setbase(node)
+
+    def visit_ComparisonNode(self, node: mparser.ComparisonNode) -> None:
+        self._accept('left', node.left)
+        self._accept('right', node.right)
+        self.current['ctype'] = node.ctype
+        self.setbase(node)
+
+    def visit_ArithmeticNode(self, node: mparser.ArithmeticNode) -> None:
+        self._accept('left', node.left)
+        self._accept('right', node.right)
+        self.current['op'] = node.operator.value
+        self.setbase(node)
+
+    def visit_NotNode(self, node: mparser.NotNode) -> None:
+        self._accept('right', node.value)
+        self.setbase(node)
+
+    def visit_CodeBlockNode(self, node: mparser.CodeBlockNode) -> None:
+        self._accept_list('lines', node.lines)
+        self.setbase(node)
+
+    def visit_IndexNode(self, node: mparser.IndexNode) -> None:
+        self._accept('object', node.iobject)
+        self._accept('index', node.index)
+        self.setbase(node)
+
+    def visit_MethodNode(self, node: mparser.MethodNode) -> None:
+        self._accept('object', node.source_object)
+        self._accept('args', node.args)
+        self.current['name'] = node.name.value
+        self.setbase(node)
+
+    def visit_FunctionNode(self, node: mparser.FunctionNode) -> None:
+        self._accept('args', node.args)
+        self.current['name'] = node.func_name.value
+        self.setbase(node)
+
+    def visit_AssignmentNode(self, node: mparser.AssignmentNode) -> None:
+        self._accept('value', node.value)
+        self.current['var_name'] = node.var_name.value
+        self.setbase(node)
+
+    def visit_PlusAssignmentNode(self, node: mparser.PlusAssignmentNode) -> None:
+        self._accept('value', node.value)
+        self.current['var_name'] = node.var_name.value
+        self.setbase(node)
+
+    def visit_ForeachClauseNode(self, node: mparser.ForeachClauseNode) -> None:
+        self._accept('items', node.items)
+        self._accept('block', node.block)
+        self.current['varnames'] = [varname.value for varname in node.varnames]
+        self.setbase(node)
+
+    def visit_IfClauseNode(self, node: mparser.IfClauseNode) -> None:
+        self._accept_list('ifs', node.ifs)
+        self._accept('else', node.elseblock)
+        self.setbase(node)
+
+    def visit_UMinusNode(self, node: mparser.UMinusNode) -> None:
+        self._accept('right', node.value)
+        self.setbase(node)
+
+    def visit_IfNode(self, node: mparser.IfNode) -> None:
+        self._accept('condition', node.condition)
+        self._accept('block', node.block)
+        self.setbase(node)
+
+    def visit_TernaryNode(self, node: mparser.TernaryNode) -> None:
+        self._accept('condition', node.condition)
+        self._accept('true', node.trueblock)
+        self._accept('false', node.falseblock)
+        self.setbase(node)
+
+    def visit_ArgumentNode(self, node: mparser.ArgumentNode) -> None:
+        self._accept_list('positional', node.arguments)
+        kwargs_list: T.List[T.Dict[str, T.Dict[str, T.Any]]] = []
+        for key, val in node.kwargs.items():
+            key_res: T.Dict[str, T.Any] = {}
+            val_res: T.Dict[str, T.Any] = {}
+            self._raw_accept(key, key_res)
+            self._raw_accept(val, val_res)
+            kwargs_list += [{'key': key_res, 'val': val_res}]
+        self.current['kwargs'] = kwargs_list
+        self.setbase(node)

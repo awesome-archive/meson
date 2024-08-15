@@ -1,11 +1,23 @@
-cmake_minimum_required(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION} )
+# fail noisily if attempt to use this file without setting:
+# cmake_minimum_required(VERSION ${CMAKE_VERSION})
+# project(... LANGUAGES ...)
+
+cmake_policy(SET CMP0000 NEW)
 
 set(PACKAGE_FOUND FALSE)
 set(_packageName "${NAME}")
 string(TOUPPER "${_packageName}" PACKAGE_NAME)
 
+if("${STATIC}" STREQUAL "True")
+  set("${NAME}_USE_STATIC_LIBS" "ON")
+endif()
+
 while(TRUE)
-  find_package("${NAME}" QUIET)
+  if ("${VERSION}" STREQUAL "")
+    find_package("${NAME}" QUIET COMPONENTS ${COMPS})
+  else()
+    find_package("${NAME}" "${VERSION}" QUIET COMPONENTS ${COMPS})
+  endif()
 
   # ARCHS has to be set via the CMD interface
   if(${_packageName}_FOUND OR ${PACKAGE_NAME}_FOUND OR "${ARCHS}" STREQUAL "")

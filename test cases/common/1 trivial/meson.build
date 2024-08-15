@@ -1,8 +1,8 @@
 # Comment on the first line
 project('trivial test',
   # Comment inside a function call + array for language list
-  ['c'],
-  meson_version : '>=0.27.0')
+  ['c'], default_options: ['buildtype=debug'],
+  meson_version : '>=0.52.0')
 #this is a comment
 sources = 'trivial.c'
 
@@ -14,11 +14,16 @@ elif cc.get_id() == 'intel-cl'
   add_project_arguments('/Qdiag-error:10159', language : 'c')
 endif
 
-if meson.is_cross_build()
-  native_exe = executable('native-trivialprog', sources : sources, native : true)
-  test('native exe in cross build', native_exe)
-endif
-
 exe = executable('trivialprog', sources : sources)
-
+assert(exe.name() == 'trivialprog')
 test('runtest', exe) # This is a comment
+
+has_not_changed = false
+if is_disabler(exe)
+    has_not_changed = true
+else
+    has_not_changed = true
+endif
+assert(has_not_changed, 'Executable has changed.')
+
+assert(not is_disabler(exe), 'Executable is a disabler.')

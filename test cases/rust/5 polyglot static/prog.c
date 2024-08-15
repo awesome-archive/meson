@@ -1,8 +1,7 @@
 #include <stdio.h>
 
-void f();
+void hello_from_both();
 
-int main() {
-    printf("Hello from C!\n");
-    f();
+int main(void) {
+    hello_from_both();
 }

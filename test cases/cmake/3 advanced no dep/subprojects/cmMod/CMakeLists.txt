@@ -8,12 +8,19 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CM
 set(CONFIG_OPT 42)
 configure_file("config.h.in" "${CMAKE_CURRENT_BINARY_DIR}/config.h" @ONLY)
 
-add_library(cmModLib SHARED lib/cmMod.cpp)
+add_library(cmModLib       SHARED lib/cmMod.cpp)
+add_library(cmModLibStatic STATIC lib/cmMod.cpp)
 include(GenerateExportHeader)
 generate_export_header(cmModLib)
 
-add_executable(testEXE main.cpp)
+set_target_properties(cmModLib PROPERTIES VERSION 1.0.1)
 
-target_link_libraries(testEXE cmModLib)
+add_executable(meson-testEXE main.cpp)
+add_executable(benchmark main.cpp)
 
-install(TARGETS cmModLib testEXE LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
+target_link_libraries(meson-testEXE cmModLib)
+target_link_libraries(benchmark cmModLib)
+
+target_compile_definitions(cmModLibStatic PUBLIC CMMODLIB_STATIC_DEFINE)
+
+install(TARGETS meson-testEXE benchmark LIBRARY DESTINATION lib RUNTIME DESTINATION bin)

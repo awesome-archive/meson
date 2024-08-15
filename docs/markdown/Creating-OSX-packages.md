@@ -39,7 +39,7 @@ $ meson --prefix=/tmp/myapp.app \
         <other flags you might need>
 ```
 
-Now when we do `ninja install` the bundle is properly staged. If you
+Now when we do `meson install` the bundle is properly staged. If you
 have any resource files or data, you need to install them into
 `Contents/Resources` either by custom install commands or specifying
 more install paths to the Meson command.
@@ -79,16 +79,20 @@ your `Info.plist`.
 
 If you are not using any external libraries, this is all you need to
 do. You now have a full app bundle in `/tmp/myapp.app` that you can
-use. Most applications use third party frameworks and libraries,
-though, so you need to add them to the bundle so it will work on other
-peoples' machines.
+use.
+
+### External libraries 
+
+Most applications use third party frameworks and libraries.
+If it is the case for your project, you need to add them to 
+the bundle so it will work on other peoples' machines.
 
 As an example we are going to use the [SDL2](https://libsdl.org/)
 framework. In order to bundle it in our app, we first specify an
 installer script to run.
 
 ```meson
-meson.add_install_script('install_script.sh')
+[[#meson.add_install_script]]('install_script.sh')
 ```
 
 The install script does two things. First it copies the whole
@@ -124,6 +128,24 @@ though.
 
 After this you have a fully working, self-contained OSX app bundle
 ready for distribution.
+
+#### Qt
+
+Qt offers a [deployment tool](https://doc.qt.io/qt-5/macos-deployment.html#macdeploy),
+called `macdeployqt`, that automates bundling Qt's libraries in your application folder and
+optionally create the final `.dmg` installer
+
+```console
+# cd into the folder that contains the `myapp.app` folder
+macdeployqt myapp.app -executable=myapp.app/Contents/MacOS/myapp
+```
+
+This copies the needed Qt libraries to the correct subfolders within `myapp.app`.
+The `-executable=myapp.app/Contents/MacOS/myapp` argument is
+to automatically alter the search path of the executable 
+`myapp.app/Contents/MacOS/myapp` for the Qt libraries. One can also pass the `-dmg`
+argument to create a `.dmg` installer from the updated `myapp.app` folder.
+More information is available on the tool's documentation page.
 
 ## Creating a .dmg installer
 

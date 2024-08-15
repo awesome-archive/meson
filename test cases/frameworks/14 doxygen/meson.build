@@ -1,4 +1,4 @@
-project('doxygen test', 'cpp', version : '0.1.0')
+project('doxygen test', 'cpp', version : '0.1.0', meson_version: '>=0.56')
 
 spede_inc = include_directories('include')
 
@@ -25,4 +25,3 @@ else
 endif
 
 subdir('doc')
-

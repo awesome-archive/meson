@@ -1,20 +1,8 @@
 #!/usr/bin/env python3
-
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2015 The Meson development team
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-
-#     http://www.apache.org/licenses/LICENSE-2.0
-
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-help_message = """Usage: %s <config.h.meson>
+help_message = """Usage: {} <config.h.meson>
 
 This script reads config.h.meson, looks for header
 checks and writes the corresponding meson declaration.
@@ -368,10 +356,10 @@ functions = []
 sizes = []
 
 if len(sys.argv) != 2:
-    print(help_message % sys.argv[0])
+    print(help_message.format(sys.argv[0]))
     sys.exit(0)
 
-with open(sys.argv[1]) as f:
+with open(sys.argv[1], encoding='utf-8') as f:
     for line in f:
         line = line.strip()
         arr = line.split()
@@ -382,16 +370,16 @@ with open(sys.argv[1]) as f:
             tarr = token.split('_')[1:-1]
             tarr = [x.lower() for x in tarr]
             hname = '/'.join(tarr) + '.h'
-            headers.append((token, hname))
+            headers.append(hname)
 
         # Check for functions.
         try:
             token = arr[1]
             if token in function_data:
                 fdata = function_data[token]
-                functions.append((token, fdata[0], fdata[1]))
+                functions.append([token, fdata[0], fdata[1]])
             elif token.startswith('HAVE_') and not token.endswith('_H'):
-                functions.append((token, ))
+                functions.append([token])
         except Exception:
             pass
 
@@ -413,13 +401,13 @@ cdata = configuration_data()''')
 # Convert header checks.
 
 print('check_headers = [')
-for token, hname in headers:
-    print("  ['%s', '%s']," % (token, hname))
+for hname in headers:
+    print(f"  '{hname}',")
 print(']\n')
 
 print('''foreach h : check_headers
-  if cc.has_header(h.get(1))
-    cdata.set(h.get(0), 1)
+  if cc.has_header(h)
+    cdata.set('HAVE_' + h.underscorify().to_upper(), 1)
   endif
 endforeach
 ''')
@@ -427,12 +415,12 @@ endforeach
 # Convert function checks.
 
 print('check_functions = [')
-for token in functions:
-    if len(token) == 3:
-        token, fdata0, fdata1 = token
-        print("  ['%s', '%s', '#include<%s>']," % (token, fdata0, fdata1))
+for tok in functions:
+    if len(tok) == 3:
+        tokstr, fdata0, fdata1 = tok
+        print(f"  ['{tokstr}', '{fdata0}', '#include<{fdata1}>'],")
     else:
-        print('# check token', token)
+        print('# check token', tok)
 print(']\n')
 
 print('''foreach f : check_functions
@@ -445,7 +433,7 @@ endforeach
 # Convert sizeof checks.
 
 for elem, typename in sizes:
-    print("cdata.set('%s', cc.sizeof('%s'))" % (elem, typename))
+    print(f"cdata.set('{elem}', cc.sizeof('{typename}'))")
 
 print('''
 configure_file(input : 'config.h.meson',

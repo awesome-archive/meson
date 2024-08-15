@@ -4,6 +4,19 @@ short-description: Installing targets
 
 # Installing
 
+Invoked via the [following command](Commands.md#install) *(available
+since 0.47.0)*:
+
+```sh
+meson install
+```
+
+or alternatively (on older Meson versions with `ninja` backend):
+
+```sh
+ninja install
+```
+
 By default Meson will not install anything. Build targets can be
 installed by tagging them as installable in the definition.
 
@@ -61,7 +74,7 @@ giving an absolute install path.
 install_data(sources : 'foo.dat', install_dir : '/etc') # -> /etc/foo.dat
 ```
 
-## Custom install behavior
+## Custom install script
 
 Sometimes you need to do more than just install basic targets. Meson
 makes this easy by allowing you to specify a custom script to execute
@@ -83,11 +96,27 @@ also sets the variables `MESON_SOURCE_ROOT` and `MESON_BUILD_ROOT`.
 Telling Meson to run this script at install time is a one-liner.
 
 ```meson
-meson.add_install_script('myscript.sh')
+[[#meson.add_install_script]]('myscript.sh')
 ```
 
 The argument is the name of the script file relative to the current
 subdirectory.
+
+## Installing as the superuser
+
+When building as a non-root user, but installing to root-owned locations via
+e.g. `sudo ninja install`, ninja will attempt to rebuild any out of date
+targets as root. This results in various bad behaviors due to build outputs and
+ninja internal files being owned by root.
+
+Running `meson install` is preferred for several reasons. It can rebuild out of
+date targets and then re-invoke itself as root. *(since 1.1.0)* Additionally,
+running `sudo meson install` will drop permissions and rebuild out of date
+targets as the original user, not as root.
+
+*(since 1.1.0)* Re-invoking as root will try to guess the user's preferred method for
+re-running commands as root. The order of precedence is: sudo, doas, pkexec
+(polkit). An elevation tool can be forced by setting `$MESON_ROOT_CMD`.
 
 ## DESTDIR support
 
@@ -97,15 +126,19 @@ packages. This is done with the `DESTDIR` environment variable and it
 is used just like with other build systems:
 
 ```console
-$ DESTDIR=/path/to/staging/area ninja install
+$ DESTDIR=/path/to/staging/area meson install
 ```
+
+Since *0.57.0* `--destdir` argument can be used instead of environment. In that
+case Meson will set `DESTDIR` into environment when running install scripts.
+
+Since *0.60.0* `DESTDIR` and `--destdir` can be a path relative to build
+directory. An absolute path will be set into environment when executing scripts.
 
 ## Custom install behaviour
 
-The default install target (executed via, e.g., `ninja install`) does
-installing with reasonable default options. More control over the
-install behaviour can be achieved with the `meson install` command,
-that has been available since 0.47.0.
+Installation behaviour can be further customized using additional
+arguments.
 
 For example, if you wish to install the current setup without
 rebuilding the code (which the default install target always does) and
@@ -116,23 +149,73 @@ command in the build tree:
 $ meson install --no-rebuild --only-changed
 ```
 
-## Finer control over install locations
+## Installation tags
 
-Sometimes it is necessary to only install a subsection of output files
-or install them in different directories. This can be done by
-specifying `install_dir` as an array rather than a single string. The
-array must have as many items as there are outputs and each entry
-specifies how the corresponding output file should be installed. For
-example:
+*Since 0.60.0*
 
-```meson
-custom_target(...
-    output: ['file1', 'file2', 'file3'],
-    install_dir: ['path1', false, 'path3'],
-    ...
-)
-```
+It is possible to install only a subset of the installable files using
+`meson install --tags tag1,tag2` command line. When `--tags` is specified, only
+files that have been tagged with one of the tags are going to be installed.
 
-In this case `file1` would be installed to `/prefix/path1/file1`,
-`file2` would not be installed at all and `file3` would be installed
-to `/prefix/path3/file3'.
+This is intended to be used by packagers (e.g. distributions) who typically
+want to split `libfoo`, `libfoo-dev` and `libfoo-doc` packages. Instead of
+duplicating the list of installed files per category in each packaging system,
+it can be maintained in a single place, directly in upstream `meson.build` files.
+
+Meson sets predefined tags on some files. More tags are likely to be added over
+time, please help extending the list of well known categories.
+- `devel`:
+  * [[static_library]],
+  * [[install_headers]],
+  * `pkgconfig.generate()`,
+  * `gnome.generate_gir()` - `.gir` file,
+  * `gnome.generate_vapi()` - `.vapi` file (*Since 0.64.0*),
+  * Files installed into `libdir` and with `.a` or `.pc` extension,
+  * File installed into `includedir`,
+  * Generated header files installed with `gnome.compile_resources()`,
+    `gnome.genmarshal()`, `gnome.mkenums()`, `gnome.mkenums_simple()`
+    and `gnome.gdbus_codegen()` (*Since 0.64.0*).
+- `runtime`:
+  * [[executable]],
+  * [[shared_library]],
+  * [[shared_module]],
+  * [[jar]],
+  * `gnome.compile_resources()` - `.gresource` file (*Since 0.64.0*),
+  * Files installed into `bindir`,
+  * Files installed into `libdir` and with `.so` or `.dll` extension.
+- `python-runtime`:
+  * `python.install_sources()`.
+- `man`:
+  * [[install_man]].
+- `doc`:
+  * `gnome.gtkdoc()`,
+  * `gnome.yelp()`,
+  * `hotdoc.generate_doc()`.
+- `i18n`:
+  * `i18n.gettext()`,
+  * `qt.compile_translations()`,
+  * Files installed into `localedir`.
+- `typelib`:
+  * `gnome.generate_gir()` - `.typelib` file.
+- `bin`:
+  * Scripts and executables bundled with a library meant to be used by end
+    users.
+- `bin-devel`:
+  * Scripts and executables bundled with a library meant to be used by
+    developers (i.e. build tools).
+- `tests`:
+  * Files installed into `installed-tests` subdir (*Since 0.64.0*).
+- `systemtap`:
+  * Files installed into `systemtap` subdir (*Since 0.64.0*).
+
+Custom installation tag can be set using the `install_tag` keyword argument
+on various functions such as [[custom_target]], [[configure_file]],
+[[install_subdir]] and [[install_data]]. See their respective documentation
+in the reference manual for details. It is recommended to use one of the
+predefined tags above when possible.
+
+Installable files that have not been tagged either automatically by Meson, or
+manually using `install_tag` keyword argument won't be installed when `--tags`
+is used. They are reported at the end of `<builddir>/meson-logs/meson-log.txt`,
+it is recommended to add missing `install_tag` to have a tag on each installable
+files.

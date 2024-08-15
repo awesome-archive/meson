@@ -1,26 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2013-2017 The Meson development team
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-
-#     http://www.apache.org/licenses/LICENSE-2.0
-
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 # This file contains the detection logic for external dependencies that are
 # platform-specific (generally speaking).
+from __future__ import annotations
 
-from .base import ExternalDependency, DependencyException
+from .base import DependencyTypeName, ExternalDependency, DependencyException
+from .detect import packages
 from ..mesonlib import MesonException
+import typing as T
+
+if T.TYPE_CHECKING:
+    from ..environment import Environment
 
 class AppleFrameworks(ExternalDependency):
-    def __init__(self, env, kwargs):
-        super().__init__('appleframeworks', env, None, kwargs)
+    def __init__(self, env: 'Environment', kwargs: T.Dict[str, T.Any]) -> None:
+        super().__init__(DependencyTypeName('appleframeworks'), env, kwargs)
         modules = kwargs.get('modules', [])
         if isinstance(modules, str):
             modules = [modules]
@@ -47,8 +42,11 @@ class AppleFrameworks(ExternalDependency):
             else:
                 self.is_found = False
 
-    def log_info(self):
+    def log_info(self) -> str:
         return ', '.join(self.frameworks)
 
-    def log_tried(self):
+    @staticmethod
+    def log_tried() -> str:
         return 'framework'
+
+packages['appleframeworks'] = AppleFrameworks

@@ -1,6 +1,8 @@
 " Vim indent file
 " Language:		Meson
+" License:		VIM License
 " Maintainer:		Nirbheek Chauhan <nirbheek.chauhan@gmail.com>
+"	        	Liam Beguin <liambeguin@gmail.com>
 " Original Authors:	David Bustos <bustos@caltech.edu>
 "			Bram Moolenaar <Bram@vim.org>
 " Last Change:		2015 Feb 23
@@ -18,12 +20,14 @@ setlocal autoindent	" indentexpr isn't much help otherwise
 setlocal indentexpr=GetMesonIndent(v:lnum)
 setlocal indentkeys+==elif,=else,=endforeach,=endif,0)
 
+let b:undo_indent = "setl ai< inde< indk< lisp<"
+
 " Only define the function once.
 if exists("*GetMesonIndent")
   finish
 endif
 let s:keepcpo= &cpo
-setlocal cpo&vim
+set cpo&vim
 
 " Come here when loading the script the first time.
 

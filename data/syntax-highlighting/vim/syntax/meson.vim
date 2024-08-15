@@ -1,7 +1,9 @@
 " Vim syntax file
 " Language:	Meson
+" License:	VIM License
 " Maintainer:	Nirbheek Chauhan <nirbheek.chauhan@gmail.com>
-" Last Change:	2016 Dec 7
+"		Liam Beguin <liambeguin@gmail.com>
+" Last Change:	2023 Aug 27
 " Credits:	Zvezdan Petkovic <zpetkovic@acm.org>
 "		Neil Schemenauer <nas@meson.ca>
 "		Dmitry Vasiliev
@@ -16,23 +18,20 @@
 "   let meson_space_error_highlight = 1
 "
 
-" For version 5.x: Clear all syntax items.
-" For version 6.x: Quit when a syntax file was already loaded.
-if version < 600
-  syntax clear
-elseif exists("b:current_syntax")
+if exists("b:current_syntax")
   finish
 endif
 
 " We need nocompatible mode in order to continue lines with backslashes.
 " Original setting will be restored.
 let s:cpo_save = &cpo
-setlocal cpo&vim
+set cpo&vim
 
 " http://mesonbuild.com/Syntax.html
 syn keyword mesonConditional	elif else if endif
-syn keyword mesonRepeat	foreach endforeach
-syn keyword mesonOperator	and not or
+syn keyword mesonRepeat		foreach endforeach
+syn keyword mesonOperator	and not or in
+syn keyword mesonStatement	continue break
 
 syn match   mesonComment	"#.*$" contains=mesonTodo,@Spell
 syn keyword mesonTodo		FIXME NOTE NOTES TODO XXX contained
@@ -57,27 +56,35 @@ syn match   mesonEscape	"\\$"
 " Meson only supports integer numbers
 " http://mesonbuild.com/Syntax.html#numbers
 syn match   mesonNumber	"\<\d\+\>"
+syn match   mesonNumber	"\<0x\x\+\>"
+syn match   mesonNumber	"\<0o\o\+\>"
 
 " booleans
-syn keyword mesonConstant	false true
+syn keyword mesonBoolean	false true
 
 " Built-in functions
 syn keyword mesonBuiltin
+  \ build_machine
+  \ host_machine
+  \ meson
+  \ option
+  \ target_machine
   \ add_global_arguments
   \ add_global_link_arguments
   \ add_languages
   \ add_project_arguments
+  \ add_project_dependencies
   \ add_project_link_arguments
   \ add_test_setup
   \ alias_target
   \ assert
   \ benchmark
   \ both_libraries
-  \ build_machine
   \ build_target
   \ configuration_data
   \ configure_file
   \ custom_target
+  \ debug
   \ declare_dependency
   \ dependency
   \ disabler
@@ -85,38 +92,39 @@ syn keyword mesonBuiltin
   \ error
   \ executable
   \ files
-  \ find_library
   \ find_program
   \ generator
   \ get_option
   \ get_variable
-  \ gettext
-  \ host_machine
   \ import
   \ include_directories
   \ install_data
+  \ install_emptydir
   \ install_headers
   \ install_man
   \ install_subdir
+  \ install_symlink
+  \ is_disabler
   \ is_variable
   \ jar
   \ join_paths
   \ library
-  \ meson
   \ message
-  \ option
   \ project
+  \ range
   \ run_command
   \ run_target
   \ set_variable
   \ shared_library
   \ shared_module
   \ static_library
+  \ structured_sources
   \ subdir
   \ subdir_done
   \ subproject
-  \ target_machine
+  \ summary
   \ test
+  \ unset_variable
   \ vcs_tag
   \ warning
 
@@ -128,31 +136,20 @@ if exists("meson_space_error_highlight")
   syn match   mesonSpaceError	display "\t\+ "
 endif
 
-if version >= 508 || !exists("did_meson_syn_inits")
-  if version <= 508
-    let did_meson_syn_inits = 1
-    command -nargs=+ HiLink hi link <args>
-  else
-    command -nargs=+ HiLink hi def link <args>
-  endif
-
-  " The default highlight links.  Can be overridden later.
-  HiLink mesonStatement		Statement
-  HiLink mesonConditional	Conditional
-  HiLink mesonRepeat		Repeat
-  HiLink mesonOperator		Operator
-  HiLink mesonComment		Comment
-  HiLink mesonTodo		Todo
-  HiLink mesonString		String
-  HiLink mesonEscape		Special
-  HiLink mesonNumber		Number
-  HiLink mesonBuiltin		Function
-  HiLink mesonConstant		Number
-  if exists("meson_space_error_highlight")
-    HiLink mesonSpaceError	Error
-  endif
-
-  delcommand HiLink
+" The default highlight links.  Can be overridden later.
+hi def link mesonStatement	Statement
+hi def link mesonConditional	Conditional
+hi def link mesonRepeat		Repeat
+hi def link mesonOperator	Operator
+hi def link mesonComment	Comment
+hi def link mesonTodo		Todo
+hi def link mesonString		String
+hi def link mesonEscape		Special
+hi def link mesonNumber		Number
+hi def link mesonBuiltin	Function
+hi def link mesonBoolean	Boolean
+if exists("meson_space_error_highlight")
+  hi def link mesonSpaceError	Error
 endif
 
 let b:current_syntax = "meson"

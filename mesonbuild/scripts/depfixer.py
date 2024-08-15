@@ -1,22 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2013-2016 The Meson development team
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-
-#     http://www.apache.org/licenses/LICENSE-2.0
-
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+from __future__ import annotations
 
 
-import sys, struct
-import shutil, subprocess
+import sys
+import os
+import stat
+import struct
+import shutil
+import subprocess
+import typing as T
 
-from ..mesonlib import OrderedSet
+from ..mesonlib import OrderedSet, generate_list, Popen_safe
 
 SHT_STRTAB = 3
 DT_NEEDED = 1
@@ -26,8 +22,11 @@ DT_STRTAB = 5
 DT_SONAME = 14
 DT_MIPS_RLD_MAP_REL = 1879048245
 
+# Global cache for tools
+INSTALL_NAME_TOOL = False
+
 class DataSizes:
-    def __init__(self, ptrsize, is_le):
+    def __init__(self, ptrsize: int, is_le: bool) -> None:
         if is_le:
             p = '<'
         else:
@@ -54,7 +53,7 @@ class DataSizes:
             self.OffSize = 4
 
 class DynamicEntry(DataSizes):
-    def __init__(self, ifile, ptrsize, is_le):
+    def __init__(self, ifile: T.BinaryIO, ptrsize: int, is_le: bool) -> None:
         super().__init__(ptrsize, is_le)
         self.ptrsize = ptrsize
         if ptrsize == 64:
@@ -64,7 +63,7 @@ class DynamicEntry(DataSizes):
             self.d_tag = struct.unpack(self.Sword, ifile.read(self.SwordSize))[0]
             self.val = struct.unpack(self.Word, ifile.read(self.WordSize))[0]
 
-    def write(self, ofile):
+    def write(self, ofile: T.BinaryIO) -> None:
         if self.ptrsize == 64:
             ofile.write(struct.pack(self.Sxword, self.d_tag))
             ofile.write(struct.pack(self.XWord, self.val))
@@ -73,12 +72,10 @@ class DynamicEntry(DataSizes):
             ofile.write(struct.pack(self.Word, self.val))
 
 class SectionHeader(DataSizes):
-    def __init__(self, ifile, ptrsize, is_le):
+    def __init__(self, ifile: T.BinaryIO, ptrsize: int, is_le: bool) -> None:
         super().__init__(ptrsize, is_le)
-        if ptrsize == 64:
-            is_64 = True
-        else:
-            is_64 = False
+        is_64 = ptrsize == 64
+
 # Elf64_Word
         self.sh_name = struct.unpack(self.Word, ifile.read(self.WordSize))[0]
 # Elf64_Word
@@ -113,10 +110,12 @@ class SectionHeader(DataSizes):
             self.sh_entsize = struct.unpack(self.Word, ifile.read(self.WordSize))[0]
 
 class Elf(DataSizes):
-    def __init__(self, bfile, verbose=True):
+    def __init__(self, bfile: str, verbose: bool = True) -> None:
         self.bfile = bfile
         self.verbose = verbose
-        self.bf = open(bfile, 'r+b')
+        self.sections: T.List[SectionHeader] = []
+        self.dynamic: T.List[DynamicEntry] = []
+        self.open_bf(bfile)
         try:
             (self.ptrsize, self.is_le) = self.detect_elf_type()
             super().__init__(self.ptrsize, self.is_le)
@@ -124,43 +123,64 @@ class Elf(DataSizes):
             self.parse_sections()
             self.parse_dynamic()
         except (struct.error, RuntimeError):
-            self.bf.close()
+            self.close_bf()
             raise
 
-    def __enter__(self):
+    def open_bf(self, bfile: str) -> None:
+        self.bf = None
+        self.bf_perms = None
+        try:
+            self.bf = open(bfile, 'r+b')
+        except PermissionError as e:
+            self.bf_perms = stat.S_IMODE(os.lstat(bfile).st_mode)
+            os.chmod(bfile, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+            try:
+                self.bf = open(bfile, 'r+b')
+            except Exception:
+                os.chmod(bfile, self.bf_perms)
+                self.bf_perms = None
+                raise e
+
+    def close_bf(self) -> None:
+        if self.bf is not None:
+            if self.bf_perms is not None:
+                os.chmod(self.bf.fileno(), self.bf_perms)
+                self.bf_perms = None
+            self.bf.close()
+            self.bf = None
+
+    def __enter__(self) -> 'Elf':
         return self
 
-    def __del__(self):
-        if self.bf:
-            self.bf.close()
+    def __del__(self) -> None:
+        self.close_bf()
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.bf.close()
-        self.bf = None
+    def __exit__(self, exc_type: T.Any, exc_value: T.Any, traceback: T.Any) -> None:
+        self.close_bf()
 
-    def detect_elf_type(self):
+    def detect_elf_type(self) -> T.Tuple[int, bool]:
         data = self.bf.read(6)
         if data[1:4] != b'ELF':
             # This script gets called to non-elf targets too
             # so just ignore them.
             if self.verbose:
-                print('File "%s" is not an ELF file.' % self.bfile)
+                print(f'File {self.bfile!r} is not an ELF file.')
             sys.exit(0)
         if data[4] == 1:
             ptrsize = 32
         elif data[4] == 2:
             ptrsize = 64
         else:
-            sys.exit('File "%s" has unknown ELF class.' % self.bfile)
+            sys.exit(f'File {self.bfile!r} has unknown ELF class.')
         if data[5] == 1:
             is_le = True
         elif data[5] == 2:
             is_le = False
         else:
-            sys.exit('File "%s" has unknown ELF endianness.' % self.bfile)
+            sys.exit(f'File {self.bfile!r} has unknown ELF endianness.')
         return ptrsize, is_le
 
-    def parse_header(self):
+    def parse_header(self) -> None:
         self.bf.seek(0)
         self.e_ident = struct.unpack('16s', self.bf.read(16))[0]
         self.e_type = struct.unpack(self.Half, self.bf.read(self.HalfSize))[0]
@@ -177,13 +197,12 @@ class Elf(DataSizes):
         self.e_shnum = struct.unpack(self.Half, self.bf.read(self.HalfSize))[0]
         self.e_shstrndx = struct.unpack(self.Half, self.bf.read(self.HalfSize))[0]
 
-    def parse_sections(self):
+    def parse_sections(self) -> None:
         self.bf.seek(self.e_shoff)
-        self.sections = []
         for _ in range(self.e_shnum):
             self.sections.append(SectionHeader(self.bf, self.ptrsize, self.is_le))
 
-    def read_str(self):
+    def read_str(self) -> bytes:
         arr = []
         x = self.bf.read(1)
         while x != b'\0':
@@ -193,17 +212,17 @@ class Elf(DataSizes):
                 raise RuntimeError('Tried to read past the end of the file')
         return b''.join(arr)
 
-    def find_section(self, target_name):
+    def find_section(self, target_name: bytes) -> T.Optional[SectionHeader]:
         section_names = self.sections[self.e_shstrndx]
         for i in self.sections:
             self.bf.seek(section_names.sh_offset + i.sh_name)
             name = self.read_str()
             if name == target_name:
                 return i
+        return None
 
-    def parse_dynamic(self):
+    def parse_dynamic(self) -> None:
         sec = self.find_section(b'.dynamic')
-        self.dynamic = []
         if sec is None:
             return
         self.bf.seek(sec.sh_offset)
@@ -213,14 +232,14 @@ class Elf(DataSizes):
             if e.d_tag == 0:
                 break
 
-    def print_section_names(self):
+    @generate_list
+    def get_section_names(self) -> T.Generator[str, None, None]:
         section_names = self.sections[self.e_shstrndx]
         for i in self.sections:
             self.bf.seek(section_names.sh_offset + i.sh_name)
-            name = self.read_str()
-            print(name.decode())
+            yield self.read_str().decode()
 
-    def print_soname(self):
+    def get_soname(self) -> T.Optional[str]:
         soname = None
         strtab = None
         for i in self.dynamic:
@@ -229,47 +248,43 @@ class Elf(DataSizes):
             if i.d_tag == DT_STRTAB:
                 strtab = i
         if soname is None or strtab is None:
-            print("This file does not have a soname")
-            return
+            return None
         self.bf.seek(strtab.val + soname.val)
-        print(self.read_str())
+        return self.read_str().decode()
 
-    def get_entry_offset(self, entrynum):
+    def get_entry_offset(self, entrynum: int) -> T.Optional[int]:
         sec = self.find_section(b'.dynstr')
         for i in self.dynamic:
             if i.d_tag == entrynum:
-                return sec.sh_offset + i.val
+                res = sec.sh_offset + i.val
+                assert isinstance(res, int)
+                return res
         return None
 
-    def print_rpath(self):
+    def get_rpath(self) -> T.Optional[str]:
         offset = self.get_entry_offset(DT_RPATH)
         if offset is None:
-            print("This file does not have an rpath.")
-        else:
-            self.bf.seek(offset)
-            print(self.read_str())
+            return None
+        self.bf.seek(offset)
+        return self.read_str().decode()
 
-    def print_runpath(self):
+    def get_runpath(self) -> T.Optional[str]:
         offset = self.get_entry_offset(DT_RUNPATH)
         if offset is None:
-            print("This file does not have a runpath.")
-        else:
-            self.bf.seek(offset)
-            print(self.read_str())
+            return None
+        self.bf.seek(offset)
+        return self.read_str().decode()
 
-    def print_deps(self):
+    @generate_list
+    def get_deps(self) -> T.Generator[str, None, None]:
         sec = self.find_section(b'.dynstr')
-        deps = []
         for i in self.dynamic:
             if i.d_tag == DT_NEEDED:
-                deps.append(i)
-        for i in deps:
-            offset = sec.sh_offset + i.val
-            self.bf.seek(offset)
-            name = self.read_str()
-            print(name)
+                offset = sec.sh_offset + i.val
+                self.bf.seek(offset)
+                yield self.read_str().decode()
 
-    def fix_deps(self, prefix):
+    def fix_deps(self, prefix: bytes) -> None:
         sec = self.find_section(b'.dynstr')
         deps = []
         for i in self.dynamic:
@@ -280,34 +295,52 @@ class Elf(DataSizes):
             self.bf.seek(offset)
             name = self.read_str()
             if name.startswith(prefix):
-                basename = name.split(b'/')[-1]
+                basename = name.rsplit(b'/', maxsplit=1)[-1]
                 padding = b'\0' * (len(name) - len(basename))
                 newname = basename + padding
-                assert(len(newname) == len(name))
+                assert len(newname) == len(name)
                 self.bf.seek(offset)
                 self.bf.write(newname)
 
-    def fix_rpath(self, new_rpath):
+    def fix_rpath(self, fname: str, rpath_dirs_to_remove: T.Set[bytes], new_rpath: bytes) -> None:
         # The path to search for can be either rpath or runpath.
         # Fix both of them to be sure.
-        self.fix_rpathtype_entry(new_rpath, DT_RPATH)
-        self.fix_rpathtype_entry(new_rpath, DT_RUNPATH)
+        self.fix_rpathtype_entry(fname, rpath_dirs_to_remove, new_rpath, DT_RPATH)
+        self.fix_rpathtype_entry(fname, rpath_dirs_to_remove, new_rpath, DT_RUNPATH)
 
-    def fix_rpathtype_entry(self, new_rpath, entrynum):
-        if isinstance(new_rpath, str):
-            new_rpath = new_rpath.encode('utf8')
+    def fix_rpathtype_entry(self, fname: str, rpath_dirs_to_remove: T.Set[bytes], new_rpath: bytes, entrynum: int) -> None:
         rp_off = self.get_entry_offset(entrynum)
         if rp_off is None:
             if self.verbose:
-                print('File does not have rpath. It should be a fully static executable.')
+                print(f'File {fname!r} does not have an rpath. It should be a fully static executable.')
             return
         self.bf.seek(rp_off)
+
         old_rpath = self.read_str()
+        # Some rpath entries may come from multiple sources.
+        # Only add each one once.
+        new_rpaths: OrderedSet[bytes] = OrderedSet()
+        if new_rpath:
+            new_rpaths.update(new_rpath.split(b':'))
+        if old_rpath:
+            # Filter out build-only rpath entries
+            # added by get_link_dep_subdirs() or
+            # specified by user with build_rpath.
+            for rpath_dir in old_rpath.split(b':'):
+                if not (rpath_dir in rpath_dirs_to_remove or
+                        rpath_dir == (b'X' * len(rpath_dir))):
+                    if rpath_dir:
+                        new_rpaths.add(rpath_dir)
+
+        # Prepend user-specified new entries while preserving the ones that came from pkgconfig etc.
+        new_rpath = b':'.join(new_rpaths)
+
         if len(old_rpath) < len(new_rpath):
-            sys.exit("New rpath must not be longer than the old one.")
+            msg = "New rpath must not be longer than the old one.\n Old: {}\n New: {}".format(old_rpath.decode('utf-8'), new_rpath.decode('utf-8'))
+            sys.exit(msg)
         # The linker does read-only string deduplication. If there is a
         # string that shares a suffix with the rpath, they might get
-        # dedupped. This means changing the rpath string might break something
+        # deduped. This means changing the rpath string might break something
         # completely unrelated. This has already happened once with X.org.
         # Thus we want to keep this change as small as possible to minimize
         # the chance of obliterating other strings. It might still happen
@@ -320,7 +353,7 @@ class Elf(DataSizes):
             self.bf.write(new_rpath)
             self.bf.write(b'\0')
 
-    def remove_rpath_entry(self, entrynum):
+    def remove_rpath_entry(self, entrynum: int) -> None:
         sec = self.find_section(b'.dynamic')
         if sec is None:
             return None
@@ -340,19 +373,20 @@ class Elf(DataSizes):
             entry.write(self.bf)
         return None
 
-def fix_elf(fname, new_rpath, verbose=True):
-    with Elf(fname, verbose) as e:
-        if new_rpath is None:
-            e.print_rpath()
-            e.print_runpath()
-        else:
-            e.fix_rpath(new_rpath)
+def fix_elf(fname: str, rpath_dirs_to_remove: T.Set[bytes], new_rpath: T.Optional[bytes], verbose: bool = True) -> None:
+    if new_rpath is not None:
+        with Elf(fname, verbose) as e:
+            # note: e.get_rpath() and e.get_runpath() may be useful
+            e.fix_rpath(fname, rpath_dirs_to_remove, new_rpath)
 
-def get_darwin_rpaths_to_remove(fname):
-    out = subprocess.check_output(['otool', '-l', fname],
-                                  universal_newlines=True,
-                                  stderr=subprocess.DEVNULL)
-    result = []
+def get_darwin_rpaths(fname: str) -> OrderedSet[str]:
+    p, out, _ = Popen_safe(['otool', '-l', fname], stderr=subprocess.DEVNULL)
+    if p.returncode != 0:
+        raise subprocess.CalledProcessError(p.returncode, p.args, out)
+    # Need to deduplicate rpaths, as macOS's install_name_tool
+    # is *very* allergic to duplicate -delete_rpath arguments
+    # when calling depfixer on installation.
+    result: OrderedSet[str] = OrderedSet()
     current_cmd = 'FOOBAR'
     for line in out.split('\n'):
         line = line.strip()
@@ -363,46 +397,35 @@ def get_darwin_rpaths_to_remove(fname):
             current_cmd = value
         if key == 'path' and current_cmd == 'LC_RPATH':
             rp = value.split('(', 1)[0].strip()
-            result.append(rp)
+            result.add(rp)
     return result
 
-def fix_darwin(fname, new_rpath, final_path, install_name_mappings):
+def fix_darwin(fname: str, rpath_dirs_to_remove: T.Set[bytes], new_rpath: str, final_path: str, install_name_mappings: T.Dict[str, str]) -> None:
     try:
-        rpaths = get_darwin_rpaths_to_remove(fname)
+        old_rpaths = get_darwin_rpaths(fname)
     except subprocess.CalledProcessError:
         # Otool failed, which happens when invoked on a
         # non-executable target. Just return.
         return
+    new_rpaths: OrderedSet[str] = OrderedSet()
+    if new_rpath:
+        new_rpaths.update(new_rpath.split(':'))
+    # filter out build-only rpath entries, like in
+    # fix_rpathtype_entry
+    remove_rpaths = [x.decode('utf8') for x in rpath_dirs_to_remove]
+    for rpath_dir in old_rpaths:
+        if rpath_dir and rpath_dir not in remove_rpaths:
+            new_rpaths.add(rpath_dir)
     try:
         args = []
-        if rpaths:
-            # TODO: fix this properly, not totally clear how
-            #
-            # removing rpaths from binaries on macOS has tons of
-            # weird edge cases. For instance, if the user provided
-            # a '-Wl,-rpath' argument in LDFLAGS that happens to
-            # coincide with an rpath generated from a dependency,
-            # this would cause installation failures, as meson would
-            # generate install_name_tool calls with two identical
-            # '-delete_rpath' arguments, which install_name_tool
-            # fails on. Because meson itself ensures that it never
-            # adds duplicate rpaths, duplicate rpaths necessarily
-            # come from user variables. The idea of using OrderedSet
-            # is to remove *at most one* duplicate RPATH entry. This
-            # is not optimal, as it only respects the user's choice
-            # partially: if they provided a non-duplicate '-Wl,-rpath'
-            # argument, it gets removed, if they provided a duplicate
-            # one, it remains in the final binary. A potentially optimal
-            # solution would split all user '-Wl,-rpath' arguments from
-            # LDFLAGS, and later add them back with '-add_rpath'.
-            for rp in OrderedSet(rpaths):
-                args += ['-delete_rpath', rp]
-            subprocess.check_call(['install_name_tool', fname] + args,
-                                  stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL)
-        args = []
-        if new_rpath:
-            args += ['-add_rpath', new_rpath]
+        # compute diff, translate it into -delete_rpath and -add_rpath
+        # calls
+        for path in new_rpaths:
+            if path not in old_rpaths:
+                args += ['-add_rpath', path]
+        for path in old_rpaths:
+            if path not in new_rpaths:
+                args += ['-delete_rpath', path]
         # Rewrite -install_name @rpath/libfoo.dylib to /path/to/libfoo.dylib
         if fname.endswith('dylib'):
             args += ['-id', final_path]
@@ -413,38 +436,52 @@ def fix_darwin(fname, new_rpath, final_path, install_name_mappings):
             subprocess.check_call(['install_name_tool', fname] + args,
                                   stdout=subprocess.DEVNULL,
                                   stderr=subprocess.DEVNULL)
-    except Exception:
-        raise
-        sys.exit(0)
+    except Exception as err:
+        raise SystemExit(err)
 
-def fix_jar(fname):
-    subprocess.check_call(['jar', 'xfv', fname, 'META-INF/MANIFEST.MF'])
-    with open('META-INF/MANIFEST.MF', 'r+') as f:
+def fix_jar(fname: str) -> None:
+    subprocess.check_call(['jar', 'xf', fname, 'META-INF/MANIFEST.MF'])
+    with open('META-INF/MANIFEST.MF', 'r+', encoding='utf-8') as f:
         lines = f.readlines()
         f.seek(0)
         for line in lines:
             if not line.startswith('Class-Path:'):
                 f.write(line)
         f.truncate()
-    subprocess.check_call(['jar', 'ufm', fname, 'META-INF/MANIFEST.MF'])
+    # jar -um doesn't allow removing existing attributes.  Use -uM instead,
+    # which a) removes the existing manifest from the jar and b) disables
+    # special-casing for the manifest file, so we can re-add it as a normal
+    # archive member.  This puts the manifest at the end of the jar rather
+    # than the beginning, but the spec doesn't forbid that.
+    subprocess.check_call(['jar', 'ufM', fname, 'META-INF/MANIFEST.MF'])
 
-def fix_rpath(fname, new_rpath, final_path, install_name_mappings, verbose=True):
-    # Static libraries never have rpaths
-    if fname.endswith('.a'):
-        return
-    # DLLs never have rpaths
-    if fname.endswith('.dll'):
+def fix_rpath(fname: str, rpath_dirs_to_remove: T.Set[bytes], new_rpath: T.Union[str, bytes], final_path: str, install_name_mappings: T.Dict[str, str], verbose: bool = True) -> None:
+    global INSTALL_NAME_TOOL  # pylint: disable=global-statement
+    # Static libraries, import libraries, debug information, headers, etc
+    # never have rpaths
+    # DLLs and EXE currently do not need runtime path fixing
+    if fname.endswith(('.a', '.lib', '.pdb', '.h', '.hpp', '.dll', '.exe')):
         return
     try:
         if fname.endswith('.jar'):
             fix_jar(fname)
             return
-        fix_elf(fname, new_rpath, verbose)
+        if isinstance(new_rpath, str):
+            new_rpath = new_rpath.encode('utf8')
+        fix_elf(fname, rpath_dirs_to_remove, new_rpath, verbose)
         return
     except SystemExit as e:
         if isinstance(e.code, int) and e.code == 0:
             pass
         else:
             raise
-    if shutil.which('install_name_tool'):
-        fix_darwin(fname, new_rpath, final_path, install_name_mappings)
+    # We don't look for this on import because it will do a useless PATH lookup
+    # on non-mac platforms. That can be expensive on some Windows machines
+    # (up to 30ms), which is significant with --only-changed. For details, see:
+    # https://github.com/mesonbuild/meson/pull/6612#discussion_r378581401
+    if INSTALL_NAME_TOOL is False:
+        INSTALL_NAME_TOOL = bool(shutil.which('install_name_tool'))
+    if INSTALL_NAME_TOOL:
+        if isinstance(new_rpath, bytes):
+            new_rpath = new_rpath.decode('utf8')
+        fix_darwin(fname, rpath_dirs_to_remove, new_rpath, final_path, install_name_mappings)

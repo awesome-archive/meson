@@ -18,6 +18,8 @@ following command:
 sudo apt install libgtk-3-dev
 ```
 
+In addition, it is recommended to have the glib library with version 2.74 or higher.
+
 It is possible to build the GUI application on other platforms, such
 as Windows and macOS, but you need to install the needed dependencies.
 
@@ -29,8 +31,11 @@ example. First we create a file `main.c` which holds the source. It
 looks like this.
 
 ```c
-#include<stdio.h>
+#include <stdio.h>
 
+//
+// main is where all program execution starts
+//
 int main(int argc, char **argv) {
   printf("Hello there.\n");
   return 0;
@@ -45,12 +50,16 @@ project('tutorial', 'c')
 executable('demo', 'main.c')
 ```
 
-That is all. We are now ready to build our application. First we need
+That is all. Note that unlike Autotools you [do not need to add any
+source headers to the list of
+sources](FAQ.md#do-i-need-to-add-my-headers-to-the-sources-list-like-in-autotools).
+
+We are now ready to build our application. First we need
 to initialize the build by going into the source directory and issuing
 the following commands.
 
 ```console
-$ meson builddir
+$ meson setup builddir
 ```
 
 We create a separate build directory to hold all of the compiler
@@ -72,12 +81,23 @@ When Meson is run it prints the following output.
 
 Now we are ready to build our code.
 
-```
+
+```console
 $ cd builddir
 $ ninja
 ```
 
-Once that is done we can run the resulting binary.
+If your Meson version is newer than 0.55.0, you can use the new
+backend-agnostic build command:
+
+```console
+$ cd builddir
+$ meson compile
+```
+
+For the rest of this document we are going to use the latter form.
+
+Once the executable is built we can run it.
 
 ```console
 $ ./demo
@@ -96,17 +116,44 @@ create a graphical window instead. We'll use the
 use GTK+. The new version looks like this.
 
 ```c
-#include<gtk/gtk.h>
 
-int main(int argc, char **argv) {
-  GtkWidget *win;
-  gtk_init(&argc, &argv);
-  win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-  gtk_window_set_title(GTK_WINDOW(win), "Hello there");
-  g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-  gtk_widget_show(win);
-  gtk_main();
-}
+#include <gtk/gtk.h>
+
+//
+// Should provided the active view for a GTK application
+//
+static void activate(GtkApplication* app, gpointer user_data)
+{
+  GtkWidget *window;
+  GtkWidget *label;
+
+  window = gtk_application_window_new (app);
+  label = gtk_label_new("Hello GNOME!");
+  gtk_container_add (GTK_CONTAINER (window), label);
+  gtk_window_set_title(GTK_WINDOW (window), "Welcome to GNOME");
+  gtk_window_set_default_size(GTK_WINDOW (window), 400, 200);
+  gtk_widget_show_all(window);
+} // end of function activate
+
+//
+// main is where all program execution starts
+//
+int main(int argc, char **argv)
+{
+  GtkApplication *app;
+  int status;
+
+#if GLIB_CHECK_VERSION(2, 74, 0)
+  app = gtk_application_new(NULL, G_APPLICATION_DEFAULT_FLAGS);
+#else
+  app = gtk_application_new(NULL, G_APPLICATION_FLAGS_NONE);
+#endif
+  g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
+  status = g_application_run(G_APPLICATION(app), argc, argv);
+  g_object_unref(app);
+
+  return status;
+} // end of function main
 ```
 
 Then we edit the Meson file, instructing it to find and use the GTK+
@@ -118,20 +165,29 @@ gtkdep = dependency('gtk+-3.0')
 executable('demo', 'main.c', dependencies : gtkdep)
 ```
 
+If your app needs to use multiple libraries, you need to use separate
+[[dependency]] calls for each, like so:
+
+```meson
+gtkdeps = [dependency('gtk+-3.0'), dependency('gtksourceview-3.0')]
+```
+
+We don't need it for the current example.
+
 Now we are ready to build. The thing to notice is that we do *not*
 need to recreate our build directory, run any sort of magical commands
 or the like. Instead we just type the exact same command as if we were
 rebuilding our code without any build system changes.
 
-```
-$ ninja
+```console
+$ meson compile
 ```
 
 Once you have set up your build directory the first time, you don't
-ever need to run the `meson` command again. You always just run
-`ninja`. Meson will automatically detect when you have done changes to
-build definitions and will take care of everything so users don't have
-to care. In this case the following output is produced.
+ever need to run the `meson` command again. You always just run `meson
+compile`. Meson will automatically detect when you have done changes
+to build definitions and will take care of everything so users don't
+have to care. In this case the following output is produced.
 
     [1/1] Regenerating build files
     The Meson build system

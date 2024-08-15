@@ -1,95 +1,88 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2019 The meson development team
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+
+from __future__ import annotations
 
 """Abstractions for the PGI family of compilers."""
 
-import typing
+import typing as T
 import os
+from pathlib import Path
 
 from ..compilers import clike_debug_args, clike_optimization_args
+from ...options import OptionKey
 
-if typing.TYPE_CHECKING:
-    from ..compilers import CompilerType
-
-pgi_buildtype_args = {
-    'plain': [],
-    'debug': [],
-    'debugoptimized': [],
-    'release': [],
-    'minsize': [],
-    'custom': [],
-}  # type: typing.Dict[str, typing.List[str]]
-
-
-pgi_buildtype_linker_args = {
-    'plain': [],
-    'debug': [],
-    'debugoptimized': [],
-    'release': [],
-    'minsize': [],
-    'custom': [],
-}  # type: typing.Dict[str, typing.List[str]]
+if T.TYPE_CHECKING:
+    from ...environment import Environment
+    from ...compilers.compilers import Compiler
+else:
+    # This is a bit clever, for mypy we pretend that these mixins descend from
+    # Compiler, so we get all of the methods and attributes defined for us, but
+    # for runtime we make them descend from object (which all classes normally
+    # do). This gives up DRYer type checking, with no runtime impact
+    Compiler = object
 
 
-class PGICompiler:
-    def __init__(self, compiler_type: 'CompilerType'):
-        self.id = 'pgi'
-        self.compiler_type = compiler_type
+class PGICompiler(Compiler):
+
+    id = 'pgi'
+
+    def __init__(self) -> None:
+        self.base_options = {OptionKey('b_pch')}
 
         default_warn_args = ['-Minform=inform']
-        self.warn_args = {'0': [],
-                          '1': default_warn_args,
-                          '2': default_warn_args,
-                          '3': default_warn_args}
+        self.warn_args: T.Dict[str, T.List[str]] = {
+            '0': [],
+            '1': default_warn_args,
+            '2': default_warn_args,
+            '3': default_warn_args,
+            'everything': default_warn_args
+        }
 
-    def get_module_incdir_args(self) -> typing.Tuple[str]:
+    def get_module_incdir_args(self) -> T.Tuple[str]:
         return ('-module', )
 
-    def get_no_warn_args(self) -> typing.List[str]:
-        return ['-silent']
+    def gen_import_library_args(self, implibname: str) -> T.List[str]:
+        return []
 
-    def get_pic_args(self) -> typing.List[str]:
-        if self.compiler_type.is_osx_compiler or self.compiler_type.is_windows_compiler:
-            return [] # PGI -fPIC is Linux only.
-        return ['-fPIC']
+    def get_pic_args(self) -> T.List[str]:
+        # PGI -fPIC is Linux only.
+        if self.info.is_linux():
+            return ['-fPIC']
+        return []
 
-    def openmp_flags(self) -> typing.List[str]:
+    def openmp_flags(self, env: Environment) -> T.List[str]:
         return ['-mp']
 
-    def get_buildtype_args(self, buildtype: str) -> typing.List[str]:
-        return pgi_buildtype_args[buildtype]
-
-    def get_buildtype_linker_args(self, buildtype: str) -> typing.List[str]:
-        return pgi_buildtype_linker_args[buildtype]
-
-    def get_optimization_args(self, optimization_level: str) -> typing.List[str]:
+    def get_optimization_args(self, optimization_level: str) -> T.List[str]:
         return clike_optimization_args[optimization_level]
 
-    def get_debug_args(self, is_debug: bool) -> typing.List[str]:
+    def get_debug_args(self, is_debug: bool) -> T.List[str]:
         return clike_debug_args[is_debug]
 
-    def compute_parameters_with_absolute_paths(self, parameter_list: typing.List[str], build_dir: str) -> typing.List[str]:
+    def compute_parameters_with_absolute_paths(self, parameter_list: T.List[str], build_dir: str) -> T.List[str]:
         for idx, i in enumerate(parameter_list):
             if i[:2] == '-I' or i[:2] == '-L':
                 parameter_list[idx] = i[:2] + os.path.normpath(os.path.join(build_dir, i[2:]))
         return parameter_list
 
-    def get_allow_undefined_link_args(self) -> typing.List[str]:
+    def get_always_args(self) -> T.List[str]:
         return []
 
-    def get_dependency_gen_args(self, outtarget: str, outfile: str) -> typing.List[str]:
-        return []
+    def get_pch_suffix(self) -> str:
+        # PGI defaults to .pch suffix for PCH on Linux and Windows with --pch option
+        return 'pch'
 
-    def get_always_args(self) -> typing.List[str]:
+    def get_pch_use_args(self, pch_dir: str, header: str) -> T.List[str]:
+        # PGI supports PCH for C++ only.
+        hdr = Path(pch_dir).resolve().parent / header
+        if self.language == 'cpp':
+            return ['--pch',
+                    '--pch_dir', str(hdr.parent),
+                    f'-I{hdr.parent}']
+        else:
+            return []
+
+    def thread_flags(self, env: 'Environment') -> T.List[str]:
+        # PGI cannot accept -pthread, it's already threaded
         return []

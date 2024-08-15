@@ -12,19 +12,63 @@ When first running Meson, set it in an environment variable.
 $ CC=mycc meson <options>
 ```
 
-Note that environment variables like `CC` _always_ refer to the native
-compiler. That is, the compiler used to compile programs that run on
-the current machine. The compiler used in cross compilation is set
-with the cross file.
+Note that environment variables like `CC` only refer to the host
+platform in cross builds.  That is, `CC` refers to the compiler used to
+compile programs that run on the machine we will eventually install the
+project on. The compiler used to build things that run on the machine we
+do the building can be specified with `CC_FOR_BUILD`. You can use it in
+cross builds.
 
-This behaviour is different from e.g. Autotools, where cross
-compilation is done by setting `CC` to point to the cross compiler
-(such as `/usr/bin/arm-linux-gnueabihf-gcc`). The reason for this is
-that Meson supports natively the case where you compile helper tools
-(such as code generators) and use the results during the
-build. Because of this Meson needs to know both the native and the
-cross compiler. The former is set via the environment variables and
-the latter via the cross file only.
+Note that environment variables are never the idiomatic way to do
+anything with Meson, however. It is better to use the native and cross
+files. And the tools for the host platform in cross builds can only be
+specified with a cross file.
+
+There is a table of all environment variables supported
+[Here](Reference-tables.md#compiler-and-linker-selection-variables)
+
+
+## Set linker
+
+*New in 0.53.0*
+
+Like the compiler, the linker is selected via the `<compiler
+variable>_LD` environment variable, or through the `<compiler
+entry>_ld` entry in a native or cross file. You must be aware of
+whether you're using a compiler that invokes the linker itself (most
+compilers including GCC and Clang) or a linker that is invoked
+directly (when using MSVC or compilers that act like it, including
+Clang-Cl). With the former `c_ld` or `CC_LD` should be the value to
+pass to the compiler's special argument (such as `-fuse-ld` with clang
+and gcc), with the latter it should be an executable, such as
+`lld-link.exe`.
+
+*NOTE* In Meson 0.53.0 the `ld` entry in the cross/native file and the
+`LD` environment variable were used, this resulted in a large number
+of regressions and was changed in 0.53.1 to `<lang>_ld` and `<comp
+variable>_LD`.
+
+```console
+$ CC=clang CC_LD=lld meson <options>
+```
+
+or
+
+```console
+$ CC=clang-cl CC_LD=link meson <options>
+```
+
+or in a cross or native file:
+
+```ini
+[binaries]
+c = 'clang'
+c_ld = 'lld'
+```
+
+There is a table of all environment variables supported
+[Here](Reference-tables.md#compiler-and-linker-selection-variables)
+
 
 ## Set default C/C++ language version
 
@@ -41,7 +85,7 @@ executable(..., override_options : ['c_std=c11'])
 
 ## Enable threads
 
-Lots of people seem to do this manually with `find_library('pthread')`
+Lots of people seem to do this manually with `cc.find_library('pthread')`
 or something similar. Do not do that. It is not portable. Instead do
 this.
 
@@ -53,8 +97,8 @@ executable(..., dependencies : thread_dep)
 ## Set extra compiler and linker flags from the outside (when e.g. building distro packages)
 
 The behavior is the same as with other build systems, with environment
-variables during first invocation. Do not use these when you need to rebuild
-the source
+variables during first invocation. Do not use these when you need to
+rebuild the source
 
 ```console
 $ CFLAGS=-fsomething LDFLAGS=-Wl,--linker-flag meson <options>
@@ -89,9 +133,26 @@ endif
 ## Set a command's output to configuration
 
 ```meson
-txt = run_command('script', 'argument').stdout().strip()
+txt = run_command('script', 'argument', check: true).stdout().strip()
 cdata = configuration_data()
 cdata.set('SOMETHING', txt)
+configure_file(...)
+```
+
+## Generate configuration data from files
+
+The [fs module](#Fs-modules) offers the `read` function which enables adding
+the contents of arbitrary files to configuration data (among other uses):
+
+```meson
+fs = import('fs')
+cdata = configuration_data()
+copyright = fs.read('LICENSE')
+cdata.set('COPYRIGHT', copyright)
+if build_machine.system() == 'linux'
+    os_release = fs.read('/etc/os-release')
+    cdata.set('LINUX_BUILDER', os_release)
+endif
 configure_file(...)
 ```
 
@@ -105,18 +166,20 @@ execute permissions, the generated file will have them too.
 First initialize the build directory with this command.
 
 ```console
-$ meson <other flags> -Db_coverage=true
+$ meson setup <other flags> -Db_coverage=true
 ```
 
 Then issue the following commands.
 
 ```console
-$ ninja
-$ ninja test
+$ meson compile
+$ meson test
 $ ninja coverage-html (or coverage-xml)
 ```
 
 The coverage report can be found in the meson-logs subdirectory.
+
+*New in 0.55.0* llvm-cov support for use with clang
 
 ## Add some optimization to debug builds
 
@@ -134,12 +197,12 @@ This causes all subsequent builds to use this command line argument.
 
 ## Use address sanitizer
 
-Clang comes with a selection of analysis tools such as the [address
+Clang and gcc come with a selection of analysis tools such as the [address
 sanitizer](https://clang.llvm.org/docs/AddressSanitizer.html). Meson
 has native support for these with the `b_sanitize` option.
 
 ```console
-$ meson <other options> -Db_sanitize=address
+$ meson setup <other options> -Db_sanitize=address
 ```
 
 After this you just compile your code and run the test suite. Address
@@ -148,19 +211,33 @@ test failures.
 
 ## Use Clang static analyzer
 
-Install scan-build and configure your project. Then do this:
+Install scan-build program, then do this:
 
 ```console
-$ ninja scan-build
+$ meson setup builddir
+$ ninja -C builddir scan-build
 ```
 
 You can use the `SCANBUILD` environment variable to choose the
 scan-build executable.
 
 ```console
-$ SCANBUILD=<your exe> ninja scan-build
+$ SCANBUILD=<your exe> ninja -C builddir scan-build
 ```
 
+You can use it for passing arguments to scan-build program by
+creating a script, for example:
+
+```sh
+#!/bin/sh
+scan-build -v --status-bugs "$@"
+```
+
+And then pass it through the variable (remember to use absolute path):
+
+```console
+$ SCANBUILD=$(pwd)/my-scan-build.sh ninja -C builddir scan-build
+```
 
 ## Use profile guided optimization
 
@@ -169,8 +246,8 @@ operation. First we set up the project with profile measurements
 enabled and compile it.
 
 ```console
-$ meson  <Meson options, such as --buildtype=debugoptimized> -Db_pgo=generate
-$ ninja -C builddir
+$ meson setup <Meson options, such as --buildtype=debugoptimized> -Db_pgo=generate
+$ meson compile -C builddir
 ```
 
 Then we need to run the program with some representative input. This
@@ -181,7 +258,7 @@ information and rebuild.
 
 ```console
 $ meson configure -Db_pgo=use
-$ ninja
+$ meson compile
 ```
 
 After these steps the resulting binary is fully optimized.
@@ -206,9 +283,10 @@ executable(..., install : true, install_dir : get_option('libexecdir'))
 
 ## Use existing `Find<name>.cmake` files
 
-Meson can use the CMake `find_package()` ecosystem if CMake is installed.
-To find a dependency with custom `Find<name>.cmake`, set the `cmake_module_path`
-property to the path in your project where the CMake scripts are stored.
+Meson can use the CMake `find_package()` ecosystem if CMake is
+installed. To find a dependency with custom `Find<name>.cmake`, set
+the `cmake_module_path` property to the path in your project where the
+CMake scripts are stored.
 
 Example for a `FindCmakeOnlyDep.cmake` in a `cmake` subdirectory:
 
@@ -220,3 +298,49 @@ The `cmake_module_path` property is only needed for custom CMake scripts. System
 wide CMake scripts are found automatically.
 
 More information can be found [here](Dependencies.md#cmake)
+
+## Get a default not-found dependency?
+
+```meson
+null_dep = dependency('', required : false)
+```
+
+This can be used in cases where you want a default value, but might override it
+later.
+
+```meson
+# Not needed on Windows!
+my_dep = dependency('', required : false)
+if host_machine.system() in ['freebsd', 'netbsd', 'openbsd', 'dragonfly']
+  my_dep = dependency('some dep', required : false)
+elif host_machine.system() == 'linux'
+  my_dep = dependency('some other dep', required : false)
+endif
+
+executable(
+  'myexe',
+  my_sources,
+  deps : [my_dep]
+)
+```
+
+## Exclude a file from unity builds
+
+If your project supports unity builds, you should fix any bugs that crop up when
+source files are concatenated together.
+Sometimes this isn't possible, though, for example if the source files are
+generated.
+
+In this case, you can put them in a separate static library build target and
+override the unity setting.
+
+```meson
+generated_files = ...
+unityproof_lib = static_library('unityproof', generated_files,
+  override_options : ['unity=off'])
+
+main_exe = executable('main', main_sources, link_with : unityproof_lib)
+```
+
+To link the static library into another library target, you may need to use
+`link_whole` instead of `link_with`.

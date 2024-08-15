@@ -36,6 +36,12 @@ with the `search` command:
     $ meson wrap search jpeg
     libjpeg
 
+If a package is not found in the list of wraps, the `search` command
+will look in all the wrap dependencies:
+
+    $ meson wrap search glib-2.0
+    Dependency glib-2.0 found in wrap glib
+
 To determine which versions of libjpeg are available to install, issue
 the `info` command:
 
@@ -77,23 +83,16 @@ Wraptool can do other things besides these. Documentation for these
 can be found in the command line help, which can be accessed by
 `meson wrap --help`.
 
-## Promoting dependencies
+## Automatic dependency fallback
 
-Meson will only search for subprojects from the top level
-`subprojects` directory. If you have subprojects that themselves have
-subprojects, you must transfer them to the top level. This can be done
-by going to your source root and issuing a promotion command.
+Since *0.64.0* Meson can use WrapDB to automatically find missing dependencies.
 
-    meson wrap promote projname
+The user simply needs to download latest database, the following command stores
+it in `subprojects/wrapdb.json`:
+    $ meson wrap update-db
 
-This will cause Meson to go through your entire project tree, find an
-embedded subproject and copy it to the top level.
+Once the database is available locally, any dependency not found on the system
+but available in WrapDB will automatically be downloaded.
 
-If there are multiple embedded copies of a subproject, Meson will not
-try to guess which one you want. Instead it will print all the
-possibilities. You can then manually select which one to promote by
-writing it out fully.
-
-    meson wrap promote subprojects/s1/subprojects/projname
-
-This functionality was added in Meson release 0.45.0.
+Automatic fetch of WrapDB subprojects can be disabled by removing the file
+`subprojects/wrapdb.json`, or by using `--wrap-mode=nodownload`.

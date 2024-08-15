@@ -1,78 +1,100 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2012-2017 The Meson development team
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+from __future__ import annotations
 
-#     http://www.apache.org/licenses/LICENSE-2.0
+import typing as T
 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import os.path, subprocess
-import typing
-
-from ..mesonlib import EnvironmentException, MachineChoice
+from .. import options
+from ..options import OptionKey
 
 from .compilers import Compiler
 from .mixins.clike import CLikeCompiler
-from .mixins.gnu import GnuCompiler
+from .mixins.gnu import GnuCompiler, gnu_common_warning_args, gnu_objc_warning_args
 from .mixins.clang import ClangCompiler
 
-class ObjCCompiler(CLikeCompiler, Compiler):
-    def __init__(self, exelist, version, for_machine: MachineChoice, is_cross: bool, exe_wrap: typing.Optional[str]):
-        self.language = 'objc'
-        Compiler.__init__(self, exelist, version, for_machine)
-        CLikeCompiler.__init__(self, is_cross, exe_wrap)
+if T.TYPE_CHECKING:
+    from .. import coredata
+    from ..envconfig import MachineInfo
+    from ..environment import Environment
+    from ..linkers.linkers import DynamicLinker
+    from ..mesonlib import MachineChoice
 
-    def get_display_language(self):
+
+class ObjCCompiler(CLikeCompiler, Compiler):
+
+    language = 'objc'
+
+    def __init__(self, ccache: T.List[str], exelist: T.List[str], version: str, for_machine: MachineChoice,
+                 is_cross: bool, info: 'MachineInfo',
+                 linker: T.Optional['DynamicLinker'] = None,
+                 full_version: T.Optional[str] = None):
+        Compiler.__init__(self, ccache, exelist, version, for_machine, info,
+                          is_cross=is_cross, full_version=full_version,
+                          linker=linker)
+        CLikeCompiler.__init__(self)
+
+    @staticmethod
+    def get_display_language() -> str:
         return 'Objective-C'
 
-    def sanity_check(self, work_dir, environment):
-        # TODO try to use sanity_check_impl instead of duplicated code
-        source_name = os.path.join(work_dir, 'sanitycheckobjc.m')
-        binary_name = os.path.join(work_dir, 'sanitycheckobjc')
-        extra_flags = environment.coredata.get_external_args(self.for_machine, self.language)
-        if self.is_cross:
-            extra_flags += self.get_compile_only_args()
-        else:
-            extra_flags += environment.coredata.get_external_link_args(self.for_machine, self.language)
-        with open(source_name, 'w') as ofile:
-            ofile.write('#import<stdio.h>\n'
-                        'int main() { return 0; }\n')
-        pc = subprocess.Popen(self.exelist + extra_flags + [source_name, '-o', binary_name])
-        pc.wait()
-        if pc.returncode != 0:
-            raise EnvironmentException('ObjC compiler %s can not compile programs.' % self.name_string())
-        if self.is_cross:
-            # Can't check if the binaries run so we have to assume they do
-            return
-        pe = subprocess.Popen(binary_name)
-        pe.wait()
-        if pe.returncode != 0:
-            raise EnvironmentException('Executables created by ObjC compiler %s are not runnable.' % self.name_string())
+    def sanity_check(self, work_dir: str, environment: 'Environment') -> None:
+        code = '#import<stddef.h>\nint main(void) { return 0; }\n'
+        return self._sanity_check_impl(work_dir, environment, 'sanitycheckobjc.m', code)
 
 
 class GnuObjCCompiler(GnuCompiler, ObjCCompiler):
-    def __init__(self, exelist, version, compiler_type, for_machine: MachineChoice, is_cross, exe_wrapper=None, defines=None):
-        ObjCCompiler.__init__(self, exelist, version, for_machine, is_cross, exe_wrapper)
-        GnuCompiler.__init__(self, compiler_type, defines)
+    def __init__(self, ccache: T.List[str], exelist: T.List[str], version: str, for_machine: MachineChoice,
+                 is_cross: bool, info: 'MachineInfo',
+                 defines: T.Optional[T.Dict[str, str]] = None,
+                 linker: T.Optional['DynamicLinker'] = None,
+                 full_version: T.Optional[str] = None):
+        ObjCCompiler.__init__(self, ccache, exelist, version, for_machine, is_cross,
+                              info, linker=linker, full_version=full_version)
+        GnuCompiler.__init__(self, defines)
         default_warn_args = ['-Wall', '-Winvalid-pch']
         self.warn_args = {'0': [],
                           '1': default_warn_args,
                           '2': default_warn_args + ['-Wextra'],
-                          '3': default_warn_args + ['-Wextra', '-Wpedantic']}
+                          '3': default_warn_args + ['-Wextra', '-Wpedantic'],
+                          'everything': (default_warn_args + ['-Wextra', '-Wpedantic'] +
+                                         self.supported_warn_args(gnu_common_warning_args) +
+                                         self.supported_warn_args(gnu_objc_warning_args))}
 
 
 class ClangObjCCompiler(ClangCompiler, ObjCCompiler):
-    def __init__(self, exelist, version, compiler_type, for_machine: MachineChoice, is_cross, exe_wrapper=None):
-        ObjCCompiler.__init__(self, exelist, version, for_machine, is_cross, exe_wrapper)
-        ClangCompiler.__init__(self, compiler_type)
+    def __init__(self, ccache: T.List[str], exelist: T.List[str], version: str, for_machine: MachineChoice,
+                 is_cross: bool, info: 'MachineInfo',
+                 defines: T.Optional[T.Dict[str, str]] = None,
+                 linker: T.Optional['DynamicLinker'] = None,
+                 full_version: T.Optional[str] = None):
+        ObjCCompiler.__init__(self, ccache, exelist, version, for_machine, is_cross,
+                              info, linker=linker, full_version=full_version)
+        ClangCompiler.__init__(self, defines)
         default_warn_args = ['-Wall', '-Winvalid-pch']
         self.warn_args = {'0': [],
                           '1': default_warn_args,
                           '2': default_warn_args + ['-Wextra'],
-                          '3': default_warn_args + ['-Wextra', '-Wpedantic']}
+                          '3': default_warn_args + ['-Wextra', '-Wpedantic'],
+                          'everything': ['-Weverything']}
+
+    def get_options(self) -> 'coredata.MutableKeyedOptionDictType':
+        return self.update_options(
+            super().get_options(),
+            self.create_option(options.UserComboOption,
+                               OptionKey('c_std', machine=self.for_machine),
+                               'C language standard to use',
+                               ['none', 'c89', 'c99', 'c11', 'c17', 'gnu89', 'gnu99', 'gnu11', 'gnu17'],
+                               'none'),
+        )
+
+    def get_option_compile_args(self, options: 'coredata.KeyedOptionDictType') -> T.List[str]:
+        args = []
+        std = options.get_value(OptionKey('c_std', machine=self.for_machine))
+        if std != 'none':
+            args.append('-std=' + std)
+        return args
+
+class AppleClangObjCCompiler(ClangObjCCompiler):
+
+    """Handle the differences between Apple's clang and vanilla clang."""

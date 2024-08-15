@@ -27,7 +27,7 @@ argument which is the name of the gettext module.
 * `preset`: (*Added 0.37.0*) name of a preset list of arguments,
   current option is `'glib'`, see
   [source](https://github.com/mesonbuild/meson/blob/master/mesonbuild/modules/i18n.py)
-  for for their value
+  for their value
 * `install`: (*Added 0.43.0*) if false, do not install the built translations.
 * `install_dir`: (*Added 0.50.0*) override default install location, default is `localedir`
 
@@ -38,12 +38,20 @@ This function also defines targets for maintainers to use:
 * `<project_id>-update-po`: regenerates the `.po` files from current `.pot` file
 * `<project_id>-gmo`: builds the translations without installing
 
+(*since 0.60.0*) Returns a list containing:
+* a list of built `.mo` files
+* the maintainer `-pot` target
+* the maintainer `-update-po` target
+
 ### i18n.merge_file()
 
 This merges translations into a text file using `msgfmt`. See
-[custom_target](Reference-manual.md#custom_target)
+[[custom_target]]
 for normal keywords. In addition it accepts these keywords:
 
+* `output`: same as `custom_target` but only accepts one item
+* `install_dir`: same as `custom_target` but only accepts one item
+* `install_tag`: same as `custom_target` but only accepts one item
 * `data_dirs`: (*Added 0.41.0*) list of directories for its files (See
   also `i18n.gettext()`)
 * `po_dir`: directory containing translations, relative to current directory
@@ -51,3 +59,18 @@ for normal keywords. In addition it accepts these keywords:
 * `args`: (*Added 0.51.0*) list of extra arguments to pass to `msgfmt`
 
 *Added 0.37.0*
+
+### i18n.itstool_join()
+
+This joins translations into a XML file using `itstool`. See
+[[custom_target]]
+for normal keywords. In addition it accepts these keywords:
+
+* `output`: same as `custom_target` but only accepts one item
+* `install_dir`: same as `custom_target` but only accepts one item
+* `install_tag`: same as `custom_target` but only accepts one item
+* `its_files`: filenames of ITS files that should be used explicitly
+  (XML translation rules are autodetected otherwise).
+* `mo_targets` *required*: mo file generation targets as returned by `i18n.gettext()`.
+
+*Added 0.62.0*

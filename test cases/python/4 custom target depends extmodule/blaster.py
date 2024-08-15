@@ -10,6 +10,9 @@ filedir = Path(os.path.dirname(__file__)).resolve()
 if list(filedir.glob('ext/*tachyon*')):
     sys.path.insert(0, (filedir / 'ext').as_posix())
 
+if hasattr(os, 'add_dll_directory'):
+    os.add_dll_directory(filedir / 'ext' / 'lib')
+
 import tachyon
 
 parser = argparse.ArgumentParser()
@@ -24,9 +27,7 @@ if options.output:
         f.write('success')
 
 if not isinstance(result, int):
-    print('Returned result not an integer.')
-    sys.exit(1)
+    raise SystemExit('Returned result not an integer.')
 
 if result != 1:
-    print('Returned result {} is not 1.'.format(result))
-    sys.exit(1)
+    raise SystemExit(f'Returned result {result} is not 1.')

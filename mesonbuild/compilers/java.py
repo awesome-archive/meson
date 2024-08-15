@@ -1,118 +1,100 @@
+# SPDX-License-Identifier: Apache-2.0
 # Copyright 2012-2017 The Meson development team
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+from __future__ import annotations
 
-#     http://www.apache.org/licenses/LICENSE-2.0
+import os
+import os.path
+import shutil
+import subprocess
+import textwrap
+import typing as T
 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+from ..mesonlib import EnvironmentException
+from .compilers import Compiler
+from .mixins.islinker import BasicLinkerIsCompilerMixin
 
-import os.path, shutil, subprocess
+if T.TYPE_CHECKING:
+    from ..envconfig import MachineInfo
+    from ..environment import Environment
+    from ..mesonlib import MachineChoice
 
-from ..mesonlib import EnvironmentException, MachineChoice
 
-from .compilers import Compiler, java_buildtype_args
+java_debug_args: T.Dict[bool, T.List[str]] = {
+    False: ['-g:none'],
+    True: ['-g']
+}
 
-class JavaCompiler(Compiler):
-    def __init__(self, exelist, version, for_machine: MachineChoice):
-        self.language = 'java'
-        super().__init__(exelist, version, for_machine)
-        self.id = 'unknown'
-        self.is_cross = False
+class JavaCompiler(BasicLinkerIsCompilerMixin, Compiler):
+
+    language = 'java'
+    id = 'unknown'
+
+    _WARNING_LEVELS: T.Dict[str, T.List[str]] = {
+        '0': ['-nowarn'],
+        '1': ['-Xlint:all'],
+        '2': ['-Xlint:all', '-Xdoclint:all'],
+        '3': ['-Xlint:all', '-Xdoclint:all'],
+    }
+
+    def __init__(self, exelist: T.List[str], version: str, for_machine: MachineChoice,
+                 info: 'MachineInfo', full_version: T.Optional[str] = None):
+        super().__init__([], exelist, version, for_machine, info, full_version=full_version)
         self.javarunner = 'java'
 
-    def get_soname_args(self, *args):
-        return []
+    def get_warn_args(self, level: str) -> T.List[str]:
+        return self._WARNING_LEVELS[level]
 
-    def get_werror_args(self):
+    def get_werror_args(self) -> T.List[str]:
         return ['-Werror']
 
-    def split_shlib_to_parts(self, fname):
-        return None, fname
+    def get_output_args(self, outputname: str) -> T.List[str]:
+        if outputname == '':
+            outputname = './'
+        return ['-d', outputname, '-s', outputname]
 
-    def build_rpath_args(self, build_dir, from_dir, rpath_paths, build_rpath, install_rpath):
+    def get_pic_args(self) -> T.List[str]:
         return []
 
-    def get_dependency_gen_args(self, outtarget, outfile):
+    def get_pch_use_args(self, pch_dir: str, header: str) -> T.List[str]:
         return []
 
-    def get_linker_exelist(self):
-        return self.exelist[:]
-
-    def get_compile_only_args(self):
-        return []
-
-    def get_output_args(self, subdir):
-        if subdir == '':
-            subdir = './'
-        return ['-d', subdir, '-s', subdir]
-
-    def get_linker_output_args(self, outputname):
-        return []
-
-    def get_coverage_args(self):
-        return []
-
-    def get_coverage_link_args(self):
-        return []
-
-    def get_std_exe_link_args(self):
-        return []
-
-    def get_include_args(self, path):
-        return []
-
-    def get_pic_args(self):
-        return []
-
-    def name_string(self):
-        return ' '.join(self.exelist)
-
-    def get_pch_use_args(self, pch_dir, header):
-        return []
-
-    def get_pch_name(self, header_name):
+    def get_pch_name(self, name: str) -> str:
         return ''
 
-    def get_buildtype_args(self, buildtype):
-        return java_buildtype_args[buildtype]
-
-    def compute_parameters_with_absolute_paths(self, parameter_list, build_dir):
+    def compute_parameters_with_absolute_paths(self, parameter_list: T.List[str],
+                                               build_dir: str) -> T.List[str]:
         for idx, i in enumerate(parameter_list):
-            if i in ['-cp', '-classpath', '-sourcepath'] and idx + 1 < len(parameter_list):
+            if i in {'-cp', '-classpath', '-sourcepath'} and idx + 1 < len(parameter_list):
                 path_list = parameter_list[idx + 1].split(os.pathsep)
                 path_list = [os.path.normpath(os.path.join(build_dir, x)) for x in path_list]
                 parameter_list[idx + 1] = os.pathsep.join(path_list)
 
         return parameter_list
 
-    def sanity_check(self, work_dir, environment):
+    def sanity_check(self, work_dir: str, environment: 'Environment') -> None:
         src = 'SanityCheck.java'
         obj = 'SanityCheck'
         source_name = os.path.join(work_dir, src)
-        with open(source_name, 'w') as ofile:
-            ofile.write('''class SanityCheck {
-  public static void main(String[] args) {
-    int i;
-  }
-}
-''')
+        with open(source_name, 'w', encoding='utf-8') as ofile:
+            ofile.write(textwrap.dedent(
+                '''class SanityCheck {
+                  public static void main(String[] args) {
+                    int i;
+                  }
+                }
+                '''))
         pc = subprocess.Popen(self.exelist + [src], cwd=work_dir)
         pc.wait()
         if pc.returncode != 0:
-            raise EnvironmentException('Java compiler %s can not compile programs.' % self.name_string())
+            raise EnvironmentException(f'Java compiler {self.name_string()} cannot compile programs.')
         runner = shutil.which(self.javarunner)
         if runner:
-            cmdlist = [runner, obj]
+            cmdlist = [runner, '-cp', '.', obj]
             pe = subprocess.Popen(cmdlist, cwd=work_dir)
             pe.wait()
             if pe.returncode != 0:
-                raise EnvironmentException('Executables created by Java compiler %s are not runnable.' % self.name_string())
+                raise EnvironmentException(f'Executables created by Java compiler {self.name_string()} are not runnable.')
         else:
             m = "Java Virtual Machine wasn't found, but it's needed by Meson. " \
                 "Please install a JRE.\nIf you have specific needs where this " \
@@ -121,5 +103,11 @@ class JavaCompiler(Compiler):
                 "all about it."
             raise EnvironmentException(m)
 
-    def needs_static_linker(self):
+    def needs_static_linker(self) -> bool:
         return False
+
+    def get_optimization_args(self, optimization_level: str) -> T.List[str]:
+        return []
+
+    def get_debug_args(self, is_debug: bool) -> T.List[str]:
+        return java_debug_args[is_debug]

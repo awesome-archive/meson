@@ -24,20 +24,29 @@ code.
 *   built-in multiplatform dependency provider that works together with distro packages
 *   fun!
 
+## Quickstart for beginners
+
+Are you an absolute beginner when it comes to programming? No worries,
+read [this beginner guide](SimpleStart.md) to get started.
+
 ## Community
 
-There are two main methods of connecting with other Meson
-developers. The first one is the mailing list, which is hosted at
-[Google Groups](https://groups.google.com/forum/#!forum/mesonbuild).
+The easiest way for most people to connect to other Meson developers is
+a web chat. The channel to use is `#mesonbuild` either via Matrix ([web
+interface](https://app.element.io/#/room/#mesonbuild:matrix.org)) or
+[OFTC IRC](https://www.oftc.net/).
 
-The second way is via IRC. The channel to use is `#mesonbuild` at
-[Freenode](https://freenode.net/).
+Other methods of communication include the [mailing
+list](https://groups.google.com/forum/#!forum/mesonbuild) (hosted by
+Google Groups) and the
+[Discussions](https://github.com/mesonbuild/meson/discussions) section
+of the Meson GitHub repository.
 
 ### [Projects using Meson](Users.md)
 
-Many projects out there are using Meson and their communities are also
-a great resource for learning about what (and what not too!) do when
-trying to convert to using Meson. 
+Many projects are using Meson and they're
+a great resource for learning what to (and what not to!) do when
+converting existing projects to Meson.
 
 [A short list of Meson users can be found here](Users.md)
 but there are many more. We would love to hear about your success

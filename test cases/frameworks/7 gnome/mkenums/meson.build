@@ -34,9 +34,9 @@ enums_c2 = gnome.mkenums('abc2',
   sources : 'meson-sample.h',
   depends : [enums_h1, enums_h2],
   c_template : 'enums2.c.in',
-  ftail : '/* trailing source file info */',
-  install_header : true,
-  install_dir : get_option('includedir'))
+  ftail : '/* trailing source file info */')
+# explicitly don't set install_dir here, for bug testing
+# See https://github.com/mesonbuild/meson/issues/9472
 
 conf = configuration_data()
 conf.set('ENUM_FILE', 'enums2.h')
@@ -89,9 +89,9 @@ enums_c3 = gnome.mkenums('enums3.c',
   vhead : '''
 GType
 @enum_name@_get_type(void) {
-    static volatile gsize g_define_type_id__volatile = 0;
+    static gsize static_g_define_type_id = 0;
 
-    if(g_once_init_enter(&g_define_type_id__volatile)) {
+    if(g_once_init_enter(&static_g_define_type_id)) {
         static const G@Type@Value values [] = {
 ''',
   vprod : '''            { @VALUENAME@, "@VALUENAME@", "@valuenick@" },''',
@@ -100,10 +100,10 @@ GType
 
         GType g_define_type_id =
             g_@type@_register_static(g_intern_static_string("@EnumName@"), values);
-        g_once_init_leave(&g_define_type_id__volatile, g_define_type_id);
+        g_once_init_leave(&static_g_define_type_id, g_define_type_id);
     }
 
-    return g_define_type_id__volatile;
+    return static_g_define_type_id;
 }
 ''')
 
@@ -121,12 +121,22 @@ test('enum test 3', enumexe3)
 enums4 = gnome.mkenums_simple('enums4', sources : files('meson-sample.h'),
                               function_prefix : '_')
 enumexe4 = executable('enumprog4', 'main4.c', enums4, dependencies : gobj)
+test('enum test 4', enumexe4)
 
 enums5 = gnome.mkenums_simple('enums5', sources : 'meson-sample.h',
                               install_header : true,
                               decorator : 'MESON_EXPORT',
                               header_prefix : '#include "meson-decls.h"')
+
+conf = configuration_data()
+conf.set('ENUM_FILE', 'enums5.h')
+main = configure_file(
+  input : 'main.c',
+  output : 'main5.c',
+  configuration : conf)
+
 enumexe5 = executable('enumprog5', main, enums5, dependencies : gobj)
+test('enum test 5', enumexe5)
 
 # Generate template then use as input to mkenums
 
@@ -153,4 +163,16 @@ main = configure_file(
 
 enumexe6 = executable('enumprog6', main, enums_c2, enums_h6,
 dependencies : gobj)
-test('enum test 4', enumexe6)
+test('enum test 6', enumexe6)
+
+# Test with headers coming from other directories
+# https://github.com/mesonbuild/meson/pull/10855
+subdir('subdir')
+enums7 = gnome.mkenums_simple('enums7', sources: ['meson-sample.h', h2, h3])
+main = configure_file(
+  input : 'main.c',
+  output : 'main7.c',
+  configuration : {'ENUM_FILE': 'enums7.h'})
+
+enumexe7 = executable('enumprog7', main, enums7, dependencies : gobj)
+test('enum test 7', enumexe7)

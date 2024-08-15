@@ -2,7 +2,8 @@
 title: Design rationale
 ...
 
-This is the original design rationale for Meson. The syntax it describes does not match the released version
+This is the original design rationale for Meson. The syntax it
+describes does not match the released version
 ==
 
 A software developer's most important tool is the editor. If you talk
@@ -65,7 +66,8 @@ what would it take to build a "good" build system. What kind of syntax
 would suit this problem? What sort of problems would this application
 need to solve? What sort of solutions would be the most appropriate?
 
-To get things started, here is a list of requirements any modern cross-platform build system needs to provide.
+To get things started, here is a list of requirements any modern
+cross-platform build system needs to provide.
 
 ### 1. Must be simple to use
 
@@ -174,7 +176,8 @@ examples we would like to emphasize that this is not in any way the
 final code. It is proof of concept code that works in the system as it
 currently exists (February 2013), but may change at any time.
 
-Let's start simple. Here is the code to compile a single executable binary.
+Let's start simple. Here is the code to compile a single executable
+binary.
 
 ```meson
 project('compile one', 'c')
@@ -223,11 +226,11 @@ add_test('test library', exe)
 ```
 
 First we build a shared library named foobar. It is marked
-installable, so running `ninja install` installs it to the library
+installable, so running `meson install` installs it to the library
 directory (the system knows which one so the user does not have to
 care). Then we build a test executable which is linked against the
-library. It will no tbe installed, but instead it is added to the list
-of unit tests, which can be run with the command `ninja test`.
+library. It will not be installed, but instead it is added to the list
+of unit tests, which can be run with the command `meson test`.
 
 Above we mentioned precompiled headers as a feature not supported by
 other build systems. Here's how you would use them.
@@ -237,7 +240,7 @@ project('pch demo', 'cxx')
 executable('myapp', 'myapp.cpp', pch : 'pch/myapp.hh')
 ```
 
-The main reason other build systems can not provide pch support this
+The main reason other build systems cannot provide pch support this
 easily is because they don't enforce certain best practices. Due to
 the way include paths work, it is impossible to provide pch support
 that always works with both in-source and out-of-source
@@ -248,10 +251,10 @@ Get the code
 --
 
 The code for this experiment can be found at [the Meson
-repository](https://sourceforge.net/p/meson/code/). It should be noted
-that it is not a build system. It is only a proposal for one. It does
-not work reliably yet. You probably should not use it as the build
-system of your project.
+repository](https://github.com/mesonbuild/meson). It should be noted
+that (at the time of writing) it is not a build system. It is only
+a proposal for one. It does not work reliably yet. You probably
+should not use it as the build system of your project.
 
 All that said I hope that this experiment will eventually turn into a
 full blown build system. For that I need your help. Comments and
